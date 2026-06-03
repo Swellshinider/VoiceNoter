@@ -63,12 +63,6 @@ On Linux, native module and whisper.cpp builds may require common compiler tooli
 pnpm install
 ```
 
-In this Codex workspace, prefix shell commands with `rtk`:
-
-```bash
-rtk pnpm install
-```
-
 ### Prepare whisper.cpp
 
 VoiceNoter uses a pinned whisper.cpp checkout for local transcription.
@@ -77,36 +71,16 @@ VoiceNoter uses a pinned whisper.cpp checkout for local transcription.
 pnpm prepare:whisper
 ```
 
-In this Codex workspace:
-
-```bash
-rtk pnpm prepare:whisper
-```
-
 ### Run The Desktop App
 
 ```bash
 pnpm dev
 ```
 
-In this Codex workspace:
-
-```bash
-rtk pnpm dev
-```
-
-The dev command rebuilds `better-sqlite3` for Electron before launching the app.
-
 ### Test
 
 ```bash
 pnpm test
-```
-
-In this Codex workspace:
-
-```bash
-rtk pnpm test
 ```
 
 The test command rebuilds `better-sqlite3` for the host Node runtime before running Vitest. If you run the app after tests, run:
@@ -115,22 +89,10 @@ The test command rebuilds `better-sqlite3` for the host Node runtime before runn
 pnpm rebuild:electron
 ```
 
-In this Codex workspace:
-
-```bash
-rtk pnpm rebuild:electron
-```
-
 ### Build
 
 ```bash
 pnpm build
-```
-
-In this Codex workspace:
-
-```bash
-rtk pnpm build
 ```
 
 ### Package
