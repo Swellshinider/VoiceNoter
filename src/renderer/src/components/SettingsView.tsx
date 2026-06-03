@@ -1,18 +1,48 @@
 import { FolderOpen, RefreshCw, Search } from "lucide-react";
-import type { LibraryState } from "../../../shared/types";
-import { Button, Panel } from "./ui";
+import type { LibrarySettings, LibraryState, ModelInfo } from "../../../shared/types";
+import { Button, Panel, Select } from "./ui";
+
+const WHISPER_LANGUAGES = [
+  { code: "auto", label: "Auto-detect" },
+  { code: "en", label: "English" },
+  { code: "es", label: "Spanish" },
+  { code: "fr", label: "French" },
+  { code: "de", label: "German" },
+  { code: "zh", label: "Chinese" },
+  { code: "ja", label: "Japanese" },
+  { code: "ko", label: "Korean" },
+  { code: "pt", label: "Portuguese" },
+  { code: "ru", label: "Russian" },
+  { code: "ar", label: "Arabic" },
+  { code: "hi", label: "Hindi" },
+  { code: "it", label: "Italian" },
+];
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / 1024 ** i).toFixed(1)} ${units[i]}`;
+}
 
 export function SettingsView({
   library,
+  settings,
+  models,
   onOpenFolder,
   onRescan,
   onReindex,
+  onUpdateSettings,
 }: {
   library: LibraryState | null;
+  settings: LibrarySettings | null;
+  models: ModelInfo[];
   onOpenFolder: () => void;
   onRescan: () => void;
   onReindex: () => void;
+  onUpdateSettings?: (patch: Partial<Pick<LibrarySettings, "transcriptionLanguage">>) => void;
 }) {
+  const selectedModel = models.find((m) => m.selected);
   return (
     <div className="flex-1 overflow-auto p-4">
       <Panel className="p-4">
@@ -21,7 +51,23 @@ export function SettingsView({
           <SettingRow label="Library path" value={library?.path ?? "No library selected"} />
           <SettingRow label="Theme" value="System" />
           <SettingRow label="Default import behavior" value="Copy into library" />
+          <SettingRow label="Default model" value={selectedModel ? `${selectedModel.name} (${selectedModel.sizeLabel})` : "None selected"} />
+          <div className="grid grid-cols-[180px_1fr] gap-3 rounded-md border border-border bg-background p-3">
+            <div className="text-muted-foreground">Transcription language</div>
+            <Select
+              value={settings?.transcriptionLanguage ?? "auto"}
+              onChange={(e) => onUpdateSettings?.({ transcriptionLanguage: e.target.value })}
+            >
+              {WHISPER_LANGUAGES.map((lang) => (
+                <option key={lang.code} value={lang.code}>{lang.label}</option>
+              ))}
+            </Select>
+          </div>
           <SettingRow label="FFmpeg status" value={library?.ffmpegStatus ?? "unknown"} />
+          <SettingRow
+            label="Model storage"
+            value={settings ? `${formatBytes(settings.modelStorageBytes ?? 0)} (${settings.installedModelCount ?? 0} models)` : "—"}
+          />
         </div>
         <div className="mt-5 flex gap-2">
           <Button variant="secondary" onClick={onOpenFolder}>

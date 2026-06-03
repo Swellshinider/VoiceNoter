@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Job, JobType } from "../../shared/types";
 import type { VoiceNoterDatabase } from "./database";
 import { MediaService } from "./media";
@@ -95,7 +97,16 @@ export class ProcessingService {
       }
       case "transcribe": {
         const inputPath = item.extracted_audio_path ?? item.library_media_path;
-        const result = await new TranscriptionService(this.libraryRoot, this.db, this.queue).transcribe(job.id, item.id, inputPath);
+        let language: string | undefined;
+        try {
+          const settings = JSON.parse(await readFile(join(this.libraryRoot, "settings.json"), "utf8")) as { transcriptionLanguage?: string };
+          if (settings.transcriptionLanguage && settings.transcriptionLanguage !== "auto") {
+            language = settings.transcriptionLanguage;
+          }
+        } catch {
+          // settings not readable, use auto
+        }
+        const result = await new TranscriptionService(this.libraryRoot, this.db, this.queue).transcribe(job.id, item.id, inputPath, language);
         this.db
           .prepare(
             `

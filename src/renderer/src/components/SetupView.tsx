@@ -1,17 +1,25 @@
-import { FolderOpen, HardDrive, RadioTower } from "lucide-react";
-import type { LibraryState, ModelInfo } from "../../../shared/types";
-import { Button } from "./ui";
+import { Download, FolderOpen, HardDrive, RadioTower } from "lucide-react";
+import type { LibraryState, ModelId, ModelInfo } from "../../../shared/types";
+import { Badge, Button } from "./ui";
 
 export function SetupView({
   library,
   models,
   onChooseLibrary,
+  onDownloadModel,
 }: {
   library: LibraryState | null;
   models: ModelInfo[];
   onChooseLibrary: () => void;
+  onDownloadModel?: (modelId: ModelId) => void;
 }) {
   const selectedModel = models.find((model) => model.selected);
+  const ffmpegValue =
+    library?.ffmpegStatus === "available"
+      ? "Available"
+      : library?.ffmpegStatus === "missing"
+        ? "Not available — media inspection and video audio extraction will not work"
+        : "Checked after library selection";
   return (
     <main className="flex min-h-screen items-center justify-center bg-background p-8">
       <div className="w-full max-w-2xl rounded-md border border-border bg-card p-8 shadow-sm">
@@ -31,16 +39,40 @@ export function SetupView({
           <SetupRow
             icon={<HardDrive />}
             title="FFmpeg"
-            value={library?.ffmpegStatus ?? "Checked after library selection"}
+            value={ffmpegValue}
             ready={library?.ffmpegStatus === "available"}
           />
           <SetupRow
             icon={<RadioTower />}
             title="Transcription model"
-            value={selectedModel ? selectedModel.name : "Download and select a model in Model Manager"}
+            value={selectedModel ? selectedModel.name : "No model selected"}
             ready={Boolean(selectedModel)}
           />
         </div>
+        {library?.isInitialized && !selectedModel && onDownloadModel && (
+          <div className="mt-6">
+            <div className="mb-2 text-sm font-medium">Download a transcription model to get started</div>
+            <div className="grid gap-2">
+              {models.map((model) => (
+                <div key={model.id} className="flex items-center justify-between rounded-md border border-border bg-background p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{model.name}</span>
+                    <span className="text-xs text-muted-foreground">{model.sizeLabel}</span>
+                    {model.id === "base" && <Badge tone="success">recommended</Badge>}
+                  </div>
+                  <Button
+                    variant="secondary"
+                    disabled={model.status === "downloading"}
+                    onClick={() => onDownloadModel(model.id)}
+                  >
+                    <Download data-icon="inline-start" />
+                    {model.status === "downloading" ? "Downloading..." : "Download"}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="mt-8 flex justify-end">
           <Button onClick={onChooseLibrary}>
             <FolderOpen data-icon="inline-start" />

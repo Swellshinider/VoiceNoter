@@ -16,6 +16,8 @@ const library: LibraryApi = {
   validateLibrary: (path) => ipcRenderer.invoke(ipcChannels.library.validate, path),
   openLibraryFolder: () => ipcRenderer.invoke(ipcChannels.library.openFolder),
   rescanLibrary: () => ipcRenderer.invoke(ipcChannels.library.rescan),
+  getSettings: () => ipcRenderer.invoke(ipcChannels.library.getSettings),
+  updateSettings: (patch) => ipcRenderer.invoke(ipcChannels.library.updateSettings, patch),
 };
 
 const importApi: ImportApi = {

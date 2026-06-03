@@ -1,25 +1,34 @@
 import type { ItemSummary, SearchResult } from "../../../shared/types";
-import { Badge } from "./ui";
+import { Badge, Spinner } from "./ui";
 
 export function ItemList({
   items,
   selectedItemId,
   searchResults,
+  activeFilterLabel,
+  isLoading,
   onSelectItem,
 }: {
   items: ItemSummary[];
   selectedItemId: string | null;
   searchResults: SearchResult[];
+  activeFilterLabel?: string;
+  isLoading?: boolean;
   onSelectItem: (itemId: string, startSeconds?: number | null) => void;
 }) {
   const searchByItem = new Map(searchResults.map((result) => [result.itemId, result]));
   return (
     <section className="h-full w-80 shrink-0 overflow-auto border-r border-border bg-background">
       <div className="sticky top-0 z-10 border-b border-border bg-background p-3 text-sm font-medium">
-        {searchResults.length ? "Search Results" : "Items"}
+        {searchResults.length ? "Search Results" : activeFilterLabel ?? "Items"}
       </div>
       <div className="flex flex-col">
-        {items.length === 0 ? (
+        {isLoading && items.length === 0 ? (
+          <div className="flex items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
+            <Spinner className="size-4" />
+            Loading items...
+          </div>
+        ) : items.length === 0 ? (
           <div className="p-4 text-sm text-muted-foreground">No items yet.</div>
         ) : (
           items.map((item) => {

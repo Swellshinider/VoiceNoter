@@ -1,6 +1,6 @@
 import { dialog, shell } from "electron";
 import { EventEmitter } from "node:events";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   ImportCandidate,
@@ -10,6 +10,7 @@ import type {
   ItemMetadataUpdate,
   ItemSummary,
   Job,
+  LibrarySettings,
   LibraryState,
   LibraryValidationResult,
   ModelDownloadJob,
@@ -124,6 +125,28 @@ export class AppServices {
     }
     const reindexResult = await new SearchService(context.db).reindex();
     return { scannedNotes, updatedNotes, errors: [...errors, ...reindexResult.errors] };
+  }
+
+  async getSettings(): Promise<LibrarySettings & { modelStorageBytes: number; installedModelCount: number }> {
+    const context = this.requireContext();
+    const settings = await this.libraryService.readSettings(context.libraryPath);
+    const models = context.db.prepare("SELECT local_path FROM models WHERE status = 'installed' AND local_path IS NOT NULL").all() as Array<{ local_path: string }>;
+    let modelStorageBytes = 0;
+    for (const model of models) {
+      try {
+        const s = await stat(model.local_path);
+        modelStorageBytes += s.size;
+      } catch {
+        // model file may have been deleted
+      }
+    }
+    return { ...settings, modelStorageBytes, installedModelCount: models.length };
+  }
+
+  async updateSettings(patch: Partial<Pick<LibrarySettings, "transcriptionLanguage">>): Promise<LibrarySettings & { modelStorageBytes: number; installedModelCount: number }> {
+    const context = this.requireContext();
+    await this.libraryService.writeSettings(context.libraryPath, patch);
+    return this.getSettings();
   }
 
   async chooseFilesForImport(): Promise<ImportCandidate[]> {

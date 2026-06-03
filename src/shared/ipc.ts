@@ -5,6 +5,8 @@ export const ipcChannels = {
     validate: "library:validate",
     openFolder: "library:openFolder",
     rescan: "library:rescan",
+    getSettings: "library:getSettings",
+    updateSettings: "library:updateSettings",
   },
   import: {
     chooseFiles: "import:chooseFiles",

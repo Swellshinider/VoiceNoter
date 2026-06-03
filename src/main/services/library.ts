@@ -2,7 +2,7 @@ import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join } from "node:path";
 import ffmpegPath from "ffmpeg-static";
-import type { LibraryState, LibraryValidationResult, ModelId } from "../../shared/types";
+import type { LibrarySettings as SharedLibrarySettings, LibraryState, LibraryValidationResult, ModelId } from "../../shared/types";
 import { userError } from "../../shared/errors";
 import { openVoiceNoterDatabase } from "./database";
 
@@ -15,13 +15,7 @@ export const libraryFolders = [
   "temp",
 ] as const;
 
-type LibrarySettings = {
-  libraryPath: string;
-  theme: "system" | "light" | "dark";
-  defaultImportBehavior: "copy";
-  defaultModelId: ModelId | null;
-  transcriptionLanguage: "auto" | string;
-};
+type LibrarySettings = SharedLibrarySettings;
 
 export class LibraryService {
   async initializeLibrary(path: string): Promise<LibraryState> {
@@ -85,6 +79,35 @@ export class LibraryService {
   async readSettings(path: string): Promise<LibrarySettings> {
     const raw = await readFile(join(path, "settings.json"), "utf8");
     return JSON.parse(raw) as LibrarySettings;
+  }
+
+  async writeSettings(path: string, patch: Partial<Pick<LibrarySettings, "transcriptionLanguage">>): Promise<LibrarySettings> {
+    const current = await this.readSettings(path);
+    const next = { ...current, ...patch };
+    await writeFile(join(path, "settings.json"), `${JSON.stringify(next, null, 2)}\n`, "utf8");
+    return next;
+  }
+
+  async getSettingsWithStorage(path: string): Promise<LibrarySettings> {
+    const settings = await this.readSettings(path);
+    const modelsDir = join(path, "models");
+    let totalBytes = 0;
+    let installedCount = 0;
+    try {
+      const { readdir } = await import("node:fs/promises");
+      const files = await readdir(modelsDir);
+      for (const file of files) {
+        if (file.endsWith(".bin")) {
+          const filePath = join(modelsDir, file);
+          const fileStat = await stat(filePath);
+          totalBytes += fileStat.size;
+          installedCount++;
+        }
+      }
+    } catch {
+      // models dir may not exist yet
+    }
+    return { ...settings, modelStorageBytes: totalBytes, installedModelCount: installedCount };
   }
 
   private async ensureWritableDirectory(path: string): Promise<void> {

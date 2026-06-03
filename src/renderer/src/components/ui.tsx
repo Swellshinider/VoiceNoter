@@ -1,4 +1,6 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import { useEffect, useState } from "react";
+import { X, AlertCircle, CheckCircle, Info } from "lucide-react";
 
 export function Button({
   children,
@@ -52,4 +54,76 @@ export function Badge({ children, tone = "muted" }: { children: ReactNode; tone?
 
 export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
   return <section className={`rounded-md border border-border bg-card ${className}`}>{children}</section>;
+}
+
+export type ToastEntry = {
+  id: string;
+  variant: "success" | "error" | "info";
+  title: string;
+  message: string;
+  technicalDetails?: string;
+};
+
+export function Toast({ toast, onDismiss }: { toast: ToastEntry; onDismiss: (id: string) => void }) {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setVisible(false);
+      setTimeout(() => onDismiss(toast.id), 300);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [toast.id, onDismiss]);
+
+  const icons = {
+    success: <CheckCircle className="size-4 text-emerald-600 shrink-0" />,
+    error: <AlertCircle className="size-4 text-destructive shrink-0" />,
+    info: <Info className="size-4 text-primary shrink-0" />,
+  };
+
+  return (
+    <div
+      className={`w-80 rounded-md border bg-card p-3 shadow-lg transition-all ${
+        visible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+      } ${toast.variant === "error" ? "border-destructive" : "border-border"}`}
+    >
+      <div className="flex items-start gap-2">
+        {icons[toast.variant]}
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium">{toast.title}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">{toast.message}</div>
+          {toast.technicalDetails && (
+            <details className="mt-2">
+              <summary className="cursor-pointer text-xs text-muted-foreground">Technical details</summary>
+              <pre className="mt-1 max-h-24 overflow-auto rounded bg-muted p-2 text-xs">{toast.technicalDetails}</pre>
+            </details>
+          )}
+        </div>
+        <button
+          className="shrink-0 text-muted-foreground hover:text-foreground"
+          onClick={() => {
+            setVisible(false);
+            setTimeout(() => onDismiss(toast.id), 300);
+          }}
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function Toaster({ toasts, onDismiss }: { toasts: ToastEntry[]; onDismiss: (id: string) => void }) {
+  if (toasts.length === 0) return null;
+  return (
+    <div className="fixed bottom-10 right-4 z-50 flex flex-col gap-2">
+      {toasts.map((toast) => (
+        <Toast key={toast.id} toast={toast} onDismiss={onDismiss} />
+      ))}
+    </div>
+  );
+}
+
+export function Spinner({ className = "" }: { className?: string }) {
+  return <div className={`animate-spin rounded-full border-2 border-muted border-t-primary h-4 w-4 ${className}`} />;
 }

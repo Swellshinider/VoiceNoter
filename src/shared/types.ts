@@ -183,12 +183,24 @@ export type ReindexResult = {
 
 export type Unsubscribe = () => void;
 
+export type LibrarySettings = {
+  libraryPath: string;
+  theme: "system" | "light" | "dark";
+  defaultImportBehavior: "copy";
+  defaultModelId: ModelId | null;
+  transcriptionLanguage: "auto" | string;
+  modelStorageBytes?: number;
+  installedModelCount?: number;
+};
+
 export type LibraryApi = {
   getCurrentLibrary(): Promise<LibraryState | null>;
   chooseLibrary(): Promise<LibraryState>;
   validateLibrary(path: string): Promise<LibraryValidationResult>;
   openLibraryFolder(): Promise<void>;
   rescanLibrary(): Promise<RescanResult>;
+  getSettings(): Promise<LibrarySettings>;
+  updateSettings(patch: Partial<Pick<LibrarySettings, "transcriptionLanguage">>): Promise<LibrarySettings>;
 };
 
 export type ImportApi = {

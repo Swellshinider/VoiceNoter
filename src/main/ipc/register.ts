@@ -8,6 +8,8 @@ export function registerIpcHandlers(services: AppServices): void {
   ipcMain.handle(ipcChannels.library.validate, (_event, path: string) => services.validateLibrary(path));
   ipcMain.handle(ipcChannels.library.openFolder, () => services.openLibraryFolder());
   ipcMain.handle(ipcChannels.library.rescan, () => services.rescanLibrary());
+  ipcMain.handle(ipcChannels.library.getSettings, () => services.getSettings());
+  ipcMain.handle(ipcChannels.library.updateSettings, (_event, patch) => services.updateSettings(patch));
 
   ipcMain.handle(ipcChannels.import.chooseFiles, () => services.chooseFilesForImport());
   ipcMain.handle(ipcChannels.import.files, (_event, paths: string[]) => services.importFiles(paths));

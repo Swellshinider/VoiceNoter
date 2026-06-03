@@ -3,15 +3,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import type { ItemDetail as ItemDetailType } from "../../../shared/types";
-import { Button, Input, Panel } from "./ui";
+import { Button, Input, Panel, Spinner } from "./ui";
 
 export function ItemDetail({
   item,
   jumpToSeconds,
+  isLoading,
   onReload,
 }: {
   item: ItemDetailType | null;
   jumpToSeconds: number | null;
+  isLoading?: boolean;
   onReload: () => void;
 }) {
   const mediaRef = useRef<HTMLMediaElement | null>(null);
@@ -51,6 +53,14 @@ export function ItemDetail({
   const mediaSrc = useMemo(() => (item ? toFileUrl(item.libraryMediaPath) : ""), [item]);
 
   if (!item) {
+    if (isLoading) {
+      return (
+        <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Spinner className="size-4" />
+          Loading...
+        </div>
+      );
+    }
     return <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">Select an item.</div>;
   }
 

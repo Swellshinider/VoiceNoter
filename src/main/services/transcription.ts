@@ -34,11 +34,11 @@ export class TranscriptionService {
     private readonly queue: QueueService,
   ) {}
 
-  async transcribe(jobId: string, itemId: string, inputPath: string): Promise<TranscriptionResult> {
+  async transcribe(jobId: string, itemId: string, inputPath: string, language?: string): Promise<TranscriptionResult> {
     const selectedModel = await new ModelService(this.libraryRoot, this.db, this.queue).resolveSelectedModel();
     const whisperCli = await resolveWhisperCli();
     const outputBase = join(this.libraryRoot, "temp", `${itemId}-${Date.now()}`);
-    await runWhisper(whisperCli, selectedModel.path, inputPath, outputBase, (progress) => {
+    await runWhisper(whisperCli, selectedModel.path, inputPath, outputBase, language, (progress) => {
       this.queue.updateProgress(jobId, progress, {
         itemId,
         stage: "transcribe",
@@ -93,10 +93,15 @@ function runWhisper(
   modelPath: string,
   inputPath: string,
   outputBase: string,
+  language: string | undefined,
   onProgress: (progress: number) => void,
 ): Promise<void> {
+  const args = ["-m", modelPath, "-f", inputPath, "-oj", "-of", outputBase];
+  if (language && language !== "auto") {
+    args.push("-l", language);
+  }
   return new Promise((resolve, reject) => {
-    const child = spawn(whisperCli, ["-m", modelPath, "-f", inputPath, "-oj", "-of", outputBase], {
+    const child = spawn(whisperCli, args, {
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stderr = "";
