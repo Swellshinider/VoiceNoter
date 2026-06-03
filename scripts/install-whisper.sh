@@ -21,6 +21,6 @@ fi
 
 (
   cd "$REPO_DIR"
-  cmake -B build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=OFF
-  cmake --build build -j --config Release
+  cmake -B build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON
+  cmake --build build -j --config Release --target whisper-cli
 )

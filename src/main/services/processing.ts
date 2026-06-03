@@ -54,18 +54,28 @@ export class ProcessingService {
     if (!row) {
       return null;
     }
-    this.queue.startJob(row.id);
     try {
+      this.queue.startJob(row.id);
       await this.runJob(row);
       return this.queue.completeJob(row.id);
     } catch (error) {
-      return this.queue.failJob(row.id, error);
+      console.error(`[processing] Job ${row.id} (${row.type}) failed:`, error);
+      try {
+        return this.queue.failJob(row.id, error);
+      } catch (failError) {
+        console.error(`[processing] Failed to mark job ${row.id} as failed:`, failError);
+        return null;
+      }
     }
   }
 
   async processAllPending(): Promise<void> {
-    while (await this.processNextPendingJob()) {
-      // loop until queue is empty
+    try {
+      while (await this.processNextPendingJob()) {
+        // loop until queue is empty
+      }
+    } catch (error) {
+      console.error("[processing] processAllPending loop crashed:", error);
     }
   }
 

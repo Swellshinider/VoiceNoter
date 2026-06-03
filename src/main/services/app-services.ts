@@ -81,6 +81,9 @@ export class AppServices {
       this.queue.onJobsChanged((jobs) => this.events.emit("jobsChanged", jobs)),
       this.queue.onProcessingEvent((event) => this.events.emit("processingEvent", event)),
     ];
+    void this.processing.processAllPending().catch((error) => {
+      console.error("[app-services] Failed to resume pending jobs:", error);
+    });
     return state;
   }
 
@@ -175,7 +178,9 @@ export class AppServices {
   async importFiles(paths: string[]): Promise<ImportResult> {
     const context = this.requireContext();
     const result = await new ImportService(context.libraryPath, context.db).importFiles(paths);
-    void context.processing.processAllPending();
+    void context.processing.processAllPending().catch((error) => {
+      console.error("[app-services] Failed to process pending jobs after import:", error);
+    });
     return result;
   }
 
@@ -187,7 +192,9 @@ export class AppServices {
   async retryJob(jobId: string): Promise<Job> {
     const context = this.requireContext();
     const job = await context.queue.retryJob(jobId);
-    void context.processing.processAllPending();
+    void context.processing.processAllPending().catch((error) => {
+      console.error("[app-services] Failed to process pending jobs after retry:", error);
+    });
     return job;
   }
 

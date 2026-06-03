@@ -5,8 +5,18 @@ set -euo pipefail
 MODULE_DIR="node_modules/better-sqlite3"
 STAMP_FILE="$MODULE_DIR/.electron-rebuild-stamp"
 
+# Verify Electron binary exists before trying to use it
+ELECTRON_PATH=$(node -e "console.log(require('electron'))" 2>/dev/null) || {
+  echo "Error: Electron binary not found. Run 'pnpm install' again or download manually." >&2
+  exit 1
+}
+if [[ ! -x "$ELECTRON_PATH" ]]; then
+  echo "Error: Electron binary not executable at $ELECTRON_PATH" >&2
+  exit 1
+fi
+
 # Get current Electron version (strip leading 'v')
-ELECTRON_VERSION=$(npx electron --version | tr -d v)
+ELECTRON_VERSION=$("$ELECTRON_PATH" --version | tr -d v)
 
 # Skip rebuild if stamp matches and .node binary exists
 if [[ -f "$STAMP_FILE" ]]; then
