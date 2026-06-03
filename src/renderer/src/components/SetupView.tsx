@@ -1,16 +1,20 @@
-import { Download, FolderOpen, HardDrive, RadioTower } from "lucide-react";
+import { Download, FolderOpen, HardDrive, History, RadioTower } from "lucide-react";
 import type { LibraryState, ModelId, ModelInfo } from "../../../shared/types";
 import { Badge, Button } from "./ui";
 
 export function SetupView({
   library,
   models,
+  lastLibraryPath,
   onChooseLibrary,
+  onOpenLastLibrary,
   onDownloadModel,
 }: {
   library: LibraryState | null;
   models: ModelInfo[];
+  lastLibraryPath?: string | null;
   onChooseLibrary: () => void;
+  onOpenLastLibrary?: () => void;
   onDownloadModel?: (modelId: ModelId) => void;
 }) {
   const selectedModel = models.find((model) => model.selected);
@@ -73,7 +77,24 @@ export function SetupView({
             </div>
           </div>
         )}
-        <div className="mt-8 flex justify-end">
+        {lastLibraryPath && onOpenLastLibrary ? (
+          <div className="mt-6 flex items-center gap-3 rounded-md border border-border bg-background p-3">
+            <div className="flex size-9 items-center justify-center rounded-md bg-secondary text-muted-foreground [&_svg]:size-4">
+              <History />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium">Last library</div>
+              <div className="truncate text-xs text-muted-foreground">{lastLibraryPath}</div>
+            </div>
+          </div>
+        ) : null}
+        <div className="mt-8 flex justify-end gap-2">
+          {lastLibraryPath && onOpenLastLibrary ? (
+            <Button variant="secondary" onClick={onOpenLastLibrary}>
+              <History data-icon="inline-start" />
+              Open Last Library
+            </Button>
+          ) : null}
           <Button onClick={onChooseLibrary}>
             <FolderOpen data-icon="inline-start" />
             Choose Library

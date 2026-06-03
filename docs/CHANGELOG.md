@@ -9,6 +9,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Add `rebuild-electron.sh` with stamp-based caching to skip redundant `better-sqlite3` rebuilds
+- Add an option on the setup screen to open the last successfully opened library
+- Add a project README with development setup guidance
+- Add the MIT license
 
 ### Changed
 
@@ -19,4 +22,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Fix whisper.cpp build: enable `WHISPER_BUILD_EXAMPLES` to build `whisper-cli` binary
 - Fix processing queue: jobs stuck in pending forever after app restart or unhandled error
+- Fix processing queue: resolve downstream item jobs when an upstream job fails or is cancelled
 - Fix `rebuild-electron.sh`: check for Electron binary before use, fail fast with clear error
+- Fix `rebuild-electron.sh`: verify Electron can load `better-sqlite3` before skipping cached rebuilds

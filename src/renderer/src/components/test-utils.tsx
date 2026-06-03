@@ -7,7 +7,9 @@ export function createMockApi(): VoiceNoterApi {
   return {
     library: {
       getCurrentLibrary: vi.fn().mockResolvedValue(null),
+      getLastLibrary: vi.fn().mockResolvedValue(null),
       chooseLibrary: vi.fn(),
+      openLastLibrary: vi.fn(),
       validateLibrary: vi.fn(),
       openLibraryFolder: vi.fn(),
       rescanLibrary: vi.fn(),

@@ -33,6 +33,45 @@ describe("SetupView", () => {
     expect(onChoose).toHaveBeenCalled();
   });
 
+  it("shows the last library option when a last library path exists", () => {
+    render(
+      <SetupView
+        library={null}
+        models={[]}
+        lastLibraryPath="/tmp/voice-library"
+        onChooseLibrary={vi.fn()}
+        onOpenLastLibrary={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /Open Last Library/ })).toBeInTheDocument();
+    expect(screen.getByText("/tmp/voice-library")).toBeInTheDocument();
+  });
+
+  it("does not show the last library option without a last library path", () => {
+    render(<SetupView library={null} models={[]} onChooseLibrary={vi.fn()} />);
+
+    expect(screen.queryByRole("button", { name: /Open Last Library/ })).not.toBeInTheDocument();
+  });
+
+  it("calls onOpenLastLibrary when the last library button is clicked", async () => {
+    const user = userEvent.setup();
+    const onOpenLastLibrary = vi.fn();
+    render(
+      <SetupView
+        library={null}
+        models={[]}
+        lastLibraryPath="/tmp/voice-library"
+        onChooseLibrary={vi.fn()}
+        onOpenLastLibrary={onOpenLastLibrary}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Open Last Library/ }));
+
+    expect(onOpenLastLibrary).toHaveBeenCalled();
+  });
+
   it("shows download model prompt when no model is selected", () => {
     const model = { ...mockModelInfo, status: "available" as const, selected: false };
     render(<SetupView library={mockLibraryState} models={[model]} onChooseLibrary={vi.fn()} onDownloadModel={vi.fn()} />);

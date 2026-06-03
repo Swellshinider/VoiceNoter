@@ -4,7 +4,9 @@ import type { AppServices } from "../services/app-services";
 
 export function registerIpcHandlers(services: AppServices): void {
   ipcMain.handle(ipcChannels.library.getCurrent, () => services.getCurrentLibrary());
+  ipcMain.handle(ipcChannels.library.getLast, () => services.getLastLibrary());
   ipcMain.handle(ipcChannels.library.choose, () => services.chooseLibrary());
+  ipcMain.handle(ipcChannels.library.openLast, () => services.openLastLibrary());
   ipcMain.handle(ipcChannels.library.validate, (_event, path: string) => services.validateLibrary(path));
   ipcMain.handle(ipcChannels.library.openFolder, () => services.openLibraryFolder());
   ipcMain.handle(ipcChannels.library.rescan, () => services.rescanLibrary());

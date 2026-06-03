@@ -1,7 +1,9 @@
 export const ipcChannels = {
   library: {
     getCurrent: "library:getCurrent",
+    getLast: "library:getLast",
     choose: "library:choose",
+    openLast: "library:openLast",
     validate: "library:validate",
     openFolder: "library:openFolder",
     rescan: "library:rescan",

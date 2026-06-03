@@ -195,7 +195,9 @@ export type LibrarySettings = {
 
 export type LibraryApi = {
   getCurrentLibrary(): Promise<LibraryState | null>;
+  getLastLibrary(): Promise<string | null>;
   chooseLibrary(): Promise<LibraryState>;
+  openLastLibrary(): Promise<LibraryState>;
   validateLibrary(path: string): Promise<LibraryValidationResult>;
   openLibraryFolder(): Promise<void>;
   rescanLibrary(): Promise<RescanResult>;

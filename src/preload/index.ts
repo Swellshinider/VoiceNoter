@@ -12,7 +12,9 @@ import type {
 
 const library: LibraryApi = {
   getCurrentLibrary: () => ipcRenderer.invoke(ipcChannels.library.getCurrent),
+  getLastLibrary: () => ipcRenderer.invoke(ipcChannels.library.getLast),
   chooseLibrary: () => ipcRenderer.invoke(ipcChannels.library.choose),
+  openLastLibrary: () => ipcRenderer.invoke(ipcChannels.library.openLast),
   validateLibrary: (path) => ipcRenderer.invoke(ipcChannels.library.validate, path),
   openLibraryFolder: () => ipcRenderer.invoke(ipcChannels.library.openFolder),
   rescanLibrary: () => ipcRenderer.invoke(ipcChannels.library.rescan),

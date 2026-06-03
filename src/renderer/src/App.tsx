@@ -25,6 +25,7 @@ export function App() {
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
   const [activeFilter, setActiveFilter] = useState<FilterState>(null);
   const [settings, setSettings] = useState<LibrarySettings | null>(null);
+  const [lastLibraryPath, setLastLibraryPath] = useState<string | null>(null);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
 
@@ -44,14 +45,16 @@ export function App() {
         : { view: "all" as const };
     setIsLoadingItems(true);
     try {
-      const [nextLibrary, nextJobs, nextModels, nextItems, nextSettings] = await Promise.all([
+      const [nextLibrary, nextLastLibraryPath, nextJobs, nextModels, nextItems, nextSettings] = await Promise.all([
         window.voiceNoter.library.getCurrentLibrary(),
+        window.voiceNoter.library.getLastLibrary().catch(() => null),
         window.voiceNoter.queue.listJobs().catch(() => []),
         window.voiceNoter.models.listModels().catch(() => []),
         window.voiceNoter.items.listItems(query).catch(() => []),
         window.voiceNoter.library.getSettings().catch(() => null),
       ]);
       setLibrary(nextLibrary);
+      setLastLibraryPath(nextLastLibraryPath);
       setJobs(nextJobs);
       setModels(nextModels);
       setItems(nextItems);
@@ -114,12 +117,29 @@ export function App() {
     try {
       const next = await window.voiceNoter.library.chooseLibrary();
       setLibrary(next);
+      setLastLibraryPath(next.path);
       setView("inbox");
       await refreshLibraryData();
       setStatusMessage("Library ready");
     } catch (error) {
       const err = error as { title?: string; message?: string; technicalDetails?: string } | undefined;
       addToast({ variant: "error", title: err?.title ?? "Library setup failed", message: err?.message ?? "VoiceNoter could not set up the library.", technicalDetails: err?.technicalDetails });
+    }
+  }
+
+  async function openLastLibrary() {
+    setStatusMessage("Opening last library");
+    try {
+      const next = await window.voiceNoter.library.openLastLibrary();
+      setLibrary(next);
+      setLastLibraryPath(next.path);
+      setView("inbox");
+      await refreshLibraryData();
+      setStatusMessage("Library ready");
+    } catch (error) {
+      const err = error as { title?: string; message?: string; technicalDetails?: string } | undefined;
+      addToast({ variant: "error", title: err?.title ?? "Library setup failed", message: err?.message ?? "VoiceNoter could not open the last library.", technicalDetails: err?.technicalDetails });
+      await refreshLibraryData().catch(() => {});
     }
   }
 
@@ -180,7 +200,16 @@ export function App() {
   }
 
   if (!library) {
-    return <SetupView library={library} models={models} onChooseLibrary={() => void chooseLibrary()} onDownloadModel={(modelId) => void window.voiceNoter.models.downloadModel(modelId).then(refreshLibraryData).catch((e: { title?: string; message?: string; technicalDetails?: string }) => addToast({ variant: "error", title: e?.title ?? "Download failed", message: e?.message ?? "Could not download model.", technicalDetails: e?.technicalDetails }))} />;
+    return (
+      <SetupView
+        library={library}
+        models={models}
+        lastLibraryPath={lastLibraryPath}
+        onChooseLibrary={() => void chooseLibrary()}
+        onOpenLastLibrary={() => void openLastLibrary()}
+        onDownloadModel={(modelId) => void window.voiceNoter.models.downloadModel(modelId).then(refreshLibraryData).catch((e: { title?: string; message?: string; technicalDetails?: string }) => addToast({ variant: "error", title: e?.title ?? "Download failed", message: e?.message ?? "Could not download model.", technicalDetails: e?.technicalDetails }))}
+      />
+    );
   }
 
   return (

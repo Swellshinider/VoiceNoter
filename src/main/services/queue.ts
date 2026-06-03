@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { Job, JobStatus, JobType, ProcessingEvent, UserFacingError } from "../../shared/types";
-import { toUserFacingError } from "../../shared/errors";
+import { toUserFacingError, userError } from "../../shared/errors";
 import type { VoiceNoterDatabase } from "./database";
 
 type JobRow = {
@@ -35,15 +35,25 @@ export class QueueService {
     if (job.status !== "failed" && job.status !== "cancelled") {
       return job;
     }
-    this.db
-      .prepare(
-        `
-          UPDATE jobs
-          SET status = 'pending', progress = 0, error_message = NULL, started_at = NULL, completed_at = NULL
-          WHERE id = ?
-        `,
-      )
-      .run(jobId);
+    const retry = this.db.transaction(() => {
+      if (!job.itemId) {
+        this.resetJob(jobId);
+        return;
+      }
+      const rowid = this.getJobRowid(jobId);
+      this.db
+        .prepare(
+          `
+            UPDATE jobs
+            SET status = 'pending', progress = 0, error_message = NULL, started_at = NULL, completed_at = NULL
+            WHERE item_id = ?
+              AND rowid >= ?
+          `,
+        )
+        .run(job.itemId, rowid);
+      this.db.prepare("UPDATE items SET status = 'processing', updated_at = ? WHERE id = ?").run(new Date().toISOString(), job.itemId);
+    });
+    retry();
     this.emitJobsChanged();
     return this.getJob(jobId);
   }
@@ -53,9 +63,14 @@ export class QueueService {
     if (job.status !== "pending" && job.status !== "running") {
       return job;
     }
-    this.db
-      .prepare("UPDATE jobs SET status = 'cancelled', completed_at = ?, progress = ? WHERE id = ?")
-      .run(new Date().toISOString(), job.progress, jobId);
+    const now = new Date().toISOString();
+    const cancel = this.db.transaction(() => {
+      this.db
+        .prepare("UPDATE jobs SET status = 'cancelled', completed_at = ?, progress = ? WHERE id = ?")
+        .run(now, job.progress, jobId);
+      this.cancelDependentJobs(jobId, job.itemId, now);
+    });
+    cancel();
     this.emitJobsChanged();
     return this.getJob(jobId);
   }
@@ -93,9 +108,15 @@ export class QueueService {
 
   failJob(jobId: string, error: UserFacingError | unknown): Job {
     const userFacingError = toUserFacingError(error);
-    this.db
-      .prepare("UPDATE jobs SET status = 'failed', error_message = ?, completed_at = ? WHERE id = ?")
-      .run(JSON.stringify(userFacingError), new Date().toISOString(), jobId);
+    const job = this.getJob(jobId);
+    const now = new Date().toISOString();
+    const fail = this.db.transaction(() => {
+      this.db
+        .prepare("UPDATE jobs SET status = 'failed', error_message = ?, completed_at = ? WHERE id = ?")
+        .run(JSON.stringify(userFacingError), now, jobId);
+      this.failDependentJobs(jobId, job.itemId, now);
+    });
+    fail();
     this.emitJobsChanged();
     return this.getJob(jobId);
   }
@@ -121,6 +142,75 @@ export class QueueService {
 
   private emitJobsChanged(): void {
     this.events.emit("jobsChanged", this.getJobs());
+  }
+
+  private resetJob(jobId: string): void {
+    this.db
+      .prepare(
+        `
+          UPDATE jobs
+          SET status = 'pending', progress = 0, error_message = NULL, started_at = NULL, completed_at = NULL
+          WHERE id = ?
+        `,
+      )
+      .run(jobId);
+  }
+
+  private failDependentJobs(jobId: string, itemId: string | null, completedAt: string): void {
+    if (!itemId) {
+      return;
+    }
+    const dependencyError = userError(
+      "Previous processing step failed",
+      "VoiceNoter stopped later processing steps because an earlier step failed.",
+      { retryable: true },
+    );
+    this.db
+      .prepare(
+        `
+          UPDATE jobs
+          SET status = 'failed',
+              progress = 0,
+              error_message = ?,
+              started_at = NULL,
+              completed_at = ?
+          WHERE item_id = ?
+            AND rowid > ?
+            AND status IN ('pending', 'running')
+        `,
+      )
+      .run(JSON.stringify(dependencyError), completedAt, itemId, this.getJobRowid(jobId));
+    this.db.prepare("UPDATE items SET status = 'failed', updated_at = ? WHERE id = ?").run(completedAt, itemId);
+  }
+
+  private cancelDependentJobs(jobId: string, itemId: string | null, completedAt: string): void {
+    if (!itemId) {
+      return;
+    }
+    this.db
+      .prepare(
+        `
+          UPDATE jobs
+          SET status = 'cancelled',
+              progress = 0,
+              error_message = NULL,
+              started_at = NULL,
+              completed_at = ?
+          WHERE item_id = ?
+            AND rowid > ?
+            AND status IN ('pending', 'running')
+        `,
+      )
+      .run(completedAt, itemId, this.getJobRowid(jobId));
+    this.db.prepare("UPDATE items SET status = 'cancelled', updated_at = ? WHERE id = ?").run(completedAt, itemId);
+  }
+
+  private getJobRowid(jobId: string): number {
+    const row = this.db.prepare("SELECT rowid FROM jobs WHERE id = ?").get(jobId) as { rowid: number } | undefined;
+    if (!row) {
+      throw new Error(`Job not found: ${jobId}`);
+    }
+    return row.rowid;
   }
 
   private getJobs(): Job[] {

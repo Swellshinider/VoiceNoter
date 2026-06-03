@@ -1,4 +1,4 @@
-import { dialog, shell } from "electron";
+import { app, dialog, shell } from "electron";
 import { EventEmitter } from "node:events";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -22,6 +22,7 @@ import type {
   SearchQuery,
   SearchResult,
 } from "../../shared/types";
+import { userError, VoiceNoterError } from "../../shared/errors";
 import { getImportCandidate } from "../../shared/validation";
 import { openVoiceNoterDatabase, type VoiceNoterDatabase } from "./database";
 import { ImportService } from "./import-service";
@@ -31,10 +32,12 @@ import { ModelService } from "./model";
 import { NoteService, hashContent } from "./note";
 import { ProcessingService } from "./processing";
 import { QueueService } from "./queue";
+import { RecentLibraryService } from "./recent-library";
 import { SearchService } from "./search";
 
 export class AppServices {
   private readonly libraryService = new LibraryService();
+  private readonly recentLibraryService = new RecentLibraryService(join(app.getPath("userData"), "recent-library.json"));
   private libraryPath: string | null = null;
   private db: VoiceNoterDatabase | null = null;
   private queue: QueueService | null = null;
@@ -68,6 +71,35 @@ export class AppServices {
     return this.openLibrary(result.filePaths[0]!);
   }
 
+  async getLastLibrary(): Promise<string | null> {
+    return this.recentLibraryService.getLastLibraryPath();
+  }
+
+  async openLastLibrary(): Promise<LibraryState> {
+    const path = await this.recentLibraryService.getLastLibraryPath();
+    if (!path) {
+      throw new VoiceNoterError(
+        userError("No last library", "VoiceNoter does not have a previously opened library path yet.", {
+          retryable: false,
+        }),
+      );
+    }
+    try {
+      const result = await stat(path);
+      if (!result.isDirectory()) {
+        throw new Error(`${path} is not a directory`);
+      }
+    } catch (error) {
+      throw new VoiceNoterError(
+        userError("Last library unavailable", "VoiceNoter could not open the last library path.", {
+          technicalDetails: error instanceof Error ? error.message : String(error),
+          retryable: true,
+        }),
+      );
+    }
+    return this.openLibrary(path);
+  }
+
   async openLibrary(path: string): Promise<LibraryState> {
     const state = await this.libraryService.initializeLibrary(path);
     this.db?.close();
@@ -84,6 +116,11 @@ export class AppServices {
     void this.processing.processAllPending().catch((error) => {
       console.error("[app-services] Failed to resume pending jobs:", error);
     });
+    try {
+      await this.recentLibraryService.setLastLibraryPath(path);
+    } catch (error) {
+      console.error("[app-services] Failed to save last library path:", error);
+    }
     return state;
   }
 

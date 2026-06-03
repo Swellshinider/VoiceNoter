@@ -2,6 +2,7 @@
   "name": "voicenoter",
   "version": "0.1.0",
   "description": "Local desktop workspace for turning audio and video into Markdown notes.",
+  "license": "MIT",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "pnpm rebuild:electron && electron-vite dev",

@@ -147,6 +147,10 @@ export class ProcessingService {
       }
       case "index_note":
         await new SearchService(this.db).indexItem(item.id);
+        this.db.prepare("UPDATE items SET status = 'ready', updated_at = ? WHERE id = ? AND note_path IS NOT NULL").run(
+          new Date().toISOString(),
+          item.id,
+        );
         return;
     }
   }

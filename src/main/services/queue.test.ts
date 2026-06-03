@@ -41,6 +41,97 @@ describe("QueueService", () => {
     }
   });
 
+  test("fails later pending jobs when an upstream item job fails", async () => {
+    const { db } = await createLibraryWithImportedItem();
+    try {
+      const queue = new QueueService(db);
+      const inspectJob = (await queue.listJobs()).find((job) => job.type === "inspect_media")!;
+
+      queue.failJob(inspectJob.id, userError("FFmpeg execution failed", "The bundled media process exited with code 1.", {
+        retryable: true,
+      }));
+
+      expect(db.prepare("SELECT status FROM items").get()).toEqual({ status: "failed" });
+      expect(db.prepare("SELECT type, status FROM jobs ORDER BY rowid").all()).toEqual([
+        { type: "import_file", status: "completed" },
+        { type: "inspect_media", status: "failed" },
+        { type: "transcribe", status: "failed" },
+        { type: "generate_markdown", status: "failed" },
+        { type: "index_note", status: "failed" },
+      ]);
+      const downstream = (await queue.listJobs()).filter((job) => job.type !== "import_file" && job.type !== "inspect_media");
+      expect(downstream).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "transcribe",
+            error: expect.objectContaining({ title: "Previous processing step failed", retryable: true }),
+          }),
+          expect.objectContaining({
+            type: "generate_markdown",
+            error: expect.objectContaining({ title: "Previous processing step failed", retryable: true }),
+          }),
+          expect.objectContaining({
+            type: "index_note",
+            error: expect.objectContaining({ title: "Previous processing step failed", retryable: true }),
+          }),
+        ]),
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  test("cancels later pending jobs when an upstream item job is cancelled", async () => {
+    const { db } = await createLibraryWithImportedItem();
+    try {
+      const queue = new QueueService(db);
+      const inspectJob = (await queue.listJobs()).find((job) => job.type === "inspect_media")!;
+
+      await queue.cancelJob(inspectJob.id);
+
+      expect(db.prepare("SELECT status FROM items").get()).toEqual({ status: "cancelled" });
+      expect(db.prepare("SELECT type, status FROM jobs ORDER BY rowid").all()).toEqual([
+        { type: "import_file", status: "completed" },
+        { type: "inspect_media", status: "cancelled" },
+        { type: "transcribe", status: "cancelled" },
+        { type: "generate_markdown", status: "cancelled" },
+        { type: "index_note", status: "cancelled" },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("retrying an upstream item job resets downstream jobs", async () => {
+    const { db } = await createLibraryWithImportedItem();
+    try {
+      const now = new Date().toISOString();
+      db.prepare("UPDATE items SET status = 'failed'").run();
+      db.prepare(
+        `
+          UPDATE jobs
+          SET status = 'failed', progress = 1, error_message = ?, started_at = ?, completed_at = ?
+          WHERE type IN ('inspect_media', 'transcribe', 'generate_markdown', 'index_note')
+        `,
+      ).run(JSON.stringify(userError("Previous processing step failed", "A previous step failed.", { retryable: true })), now, now);
+      const queue = new QueueService(db);
+      const inspectJob = (await queue.listJobs()).find((job) => job.type === "inspect_media")!;
+
+      await queue.retryJob(inspectJob.id);
+
+      expect(db.prepare("SELECT status FROM items").get()).toEqual({ status: "processing" });
+      expect(db.prepare("SELECT type, status, progress, error_message, started_at, completed_at FROM jobs ORDER BY rowid").all()).toEqual([
+        { type: "import_file", status: "completed", progress: 1, error_message: null, started_at: expect.any(String), completed_at: expect.any(String) },
+        { type: "inspect_media", status: "pending", progress: 0, error_message: null, started_at: null, completed_at: null },
+        { type: "transcribe", status: "pending", progress: 0, error_message: null, started_at: null, completed_at: null },
+        { type: "generate_markdown", status: "pending", progress: 0, error_message: null, started_at: null, completed_at: null },
+        { type: "index_note", status: "pending", progress: 0, error_message: null, started_at: null, completed_at: null },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
   test("recovers unfinished running jobs on restart", async () => {
     const { db } = await createLibraryWithImportedItem();
     try {
