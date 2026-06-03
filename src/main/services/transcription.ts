@@ -96,13 +96,13 @@ function runWhisper(
   language: string | undefined,
   onProgress: (progress: number) => void,
 ): Promise<void> {
-  const args = ["-m", modelPath, "-f", inputPath, "-oj", "-of", outputBase];
+  const args = ["-m", modelPath, "-f", inputPath, "-oj", "-of", outputBase, "-pp"];
   if (language && language !== "auto") {
     args.push("-l", language);
   }
   return new Promise((resolve, reject) => {
     const child = spawn(whisperCli, args, {
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", "ignore", "pipe"],
     });
     let stderr = "";
     child.stderr.on("data", (chunk: Buffer) => {

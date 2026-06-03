@@ -23,5 +23,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Fix whisper.cpp build: enable `WHISPER_BUILD_EXAMPLES` to build `whisper-cli` binary
 - Fix processing queue: jobs stuck in pending forever after app restart or unhandled error
 - Fix processing queue: resolve downstream item jobs when an upstream job fails or is cancelled
+- Fix transcription retry: prevent whisper.cpp stdout backpressure from leaving jobs running at 0% and enable progress reporting
 - Fix `rebuild-electron.sh`: check for Electron binary before use, fail fast with clear error
 - Fix `rebuild-electron.sh`: verify Electron can load `better-sqlite3` before skipping cached rebuilds
