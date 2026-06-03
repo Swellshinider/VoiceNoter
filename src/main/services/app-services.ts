@@ -128,7 +128,18 @@ export class AppServices {
   }
 
   async getSettings(): Promise<LibrarySettings & { modelStorageBytes: number; installedModelCount: number }> {
-    const context = this.requireContext();
+    if (!this.libraryPath || !this.db) {
+      return {
+        libraryPath: "",
+        theme: "system",
+        defaultImportBehavior: "copy",
+        defaultModelId: null,
+        transcriptionLanguage: "auto",
+        modelStorageBytes: 0,
+        installedModelCount: 0,
+      };
+    }
+    const context = { libraryPath: this.libraryPath, db: this.db };
     const settings = await this.libraryService.readSettings(context.libraryPath);
     const models = context.db.prepare("SELECT local_path FROM models WHERE status = 'installed' AND local_path IS NOT NULL").all() as Array<{ local_path: string }>;
     let modelStorageBytes = 0;
@@ -169,7 +180,8 @@ export class AppServices {
   }
 
   async listJobs(): Promise<Job[]> {
-    return this.requireContext().queue.listJobs();
+    if (!this.db || !this.queue) return [];
+    return this.queue.listJobs();
   }
 
   async retryJob(jobId: string): Promise<Job> {
@@ -196,7 +208,8 @@ export class AppServices {
   }
 
   async listItems(query: ItemListQuery = {}): Promise<ItemSummary[]> {
-    const { db } = this.requireContext();
+    if (!this.db) return [];
+    const db = this.db;
     const clauses: string[] = [];
     const params: unknown[] = [];
     if (query.view === "inbox") {
@@ -317,8 +330,8 @@ export class AppServices {
   }
 
   async listModels(): Promise<ModelInfo[]> {
-    const context = this.requireContext();
-    return new ModelService(context.libraryPath, context.db, context.queue).listModels();
+    if (!this.libraryPath || !this.db || !this.queue) return [];
+    return new ModelService(this.libraryPath, this.db, this.queue).listModels();
   }
 
   async downloadModel(modelId: string): Promise<ModelDownloadJob> {
