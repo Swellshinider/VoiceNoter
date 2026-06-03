@@ -1,0 +1,142 @@
+import type { Job, JobType } from "../../shared/types";
+import type { VoiceNoterDatabase } from "./database";
+import { MediaService } from "./media";
+import { NoteService } from "./note";
+import { QueueService } from "./queue";
+import { SearchService } from "./search";
+import { TranscriptionService } from "./transcription";
+
+type PendingJobRow = {
+  id: string;
+  item_id: string | null;
+  type: JobType;
+};
+
+type ProcessingItemRow = {
+  id: string;
+  library_media_path: string;
+  extracted_audio_path: string | null;
+  source_type: "audio" | "video";
+};
+
+export class ProcessingService {
+  private readonly media = new MediaService();
+
+  constructor(
+    private readonly libraryRoot: string,
+    private readonly db: VoiceNoterDatabase,
+    private readonly queue: QueueService,
+  ) {}
+
+  async processNextPendingJob(): Promise<Job | null> {
+    const row = this.db
+      .prepare(
+        `
+          SELECT id, item_id, type
+          FROM jobs AS current_job
+          WHERE status = 'pending'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM jobs AS previous_job
+              WHERE previous_job.item_id = current_job.item_id
+                AND previous_job.rowid < current_job.rowid
+                AND previous_job.status != 'completed'
+            )
+          ORDER BY rowid
+          LIMIT 1
+        `,
+      )
+      .get() as
+      | PendingJobRow
+      | undefined;
+    if (!row) {
+      return null;
+    }
+    this.queue.startJob(row.id);
+    try {
+      await this.runJob(row);
+      return this.queue.completeJob(row.id);
+    } catch (error) {
+      return this.queue.failJob(row.id, error);
+    }
+  }
+
+  async processAllPending(): Promise<void> {
+    while (await this.processNextPendingJob()) {
+      // loop until queue is empty
+    }
+  }
+
+  private async runJob(job: PendingJobRow): Promise<void> {
+    if (job.type === "download_model") {
+      return;
+    }
+    if (!job.item_id) {
+      throw new Error(`Job ${job.id} has no item_id`);
+    }
+    const item = this.getProcessingItem(job.item_id);
+
+    switch (job.type) {
+      case "import_file":
+        return;
+      case "inspect_media": {
+        const inspection = await this.media.inspectMedia(item.library_media_path);
+        this.db
+          .prepare("UPDATE items SET duration_seconds = ?, updated_at = ? WHERE id = ?")
+          .run(inspection.durationSeconds, new Date().toISOString(), item.id);
+        return;
+      }
+      case "extract_audio": {
+        const outputPath = await this.media.extractAudio(item.library_media_path, item.id, this.libraryRoot);
+        this.db
+          .prepare("UPDATE items SET extracted_audio_path = ?, updated_at = ? WHERE id = ?")
+          .run(outputPath, new Date().toISOString(), item.id);
+        return;
+      }
+      case "transcribe": {
+        const inputPath = item.extracted_audio_path ?? item.library_media_path;
+        const result = await new TranscriptionService(this.libraryRoot, this.db, this.queue).transcribe(job.id, item.id, inputPath);
+        this.db
+          .prepare(
+            `
+              INSERT INTO transcripts (
+                id, item_id, engine, model, language, raw_text, segments_json, created_at
+              )
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+          )
+          .run(
+            result.id,
+            result.itemId,
+            result.engine,
+            result.model,
+            result.language,
+            result.rawText,
+            JSON.stringify(result.segments),
+            new Date().toISOString(),
+          );
+        return;
+      }
+      case "generate_markdown": {
+        const transcript = this.db.prepare("SELECT model FROM transcripts WHERE item_id = ? ORDER BY created_at DESC LIMIT 1").get(item.id) as
+          | { model: "tiny" | "base" | "small" }
+          | undefined;
+        await new NoteService(this.libraryRoot, this.db).generateMarkdownNote(item.id, transcript?.model ?? "base");
+        return;
+      }
+      case "index_note":
+        await new SearchService(this.db).indexItem(item.id);
+        return;
+    }
+  }
+
+  private getProcessingItem(itemId: string): ProcessingItemRow {
+    const row = this.db.prepare("SELECT id, library_media_path, extracted_audio_path, source_type FROM items WHERE id = ?").get(itemId) as
+      | ProcessingItemRow
+      | undefined;
+    if (!row) {
+      throw new Error(`Item not found: ${itemId}`);
+    }
+    return row;
+  }
+}
