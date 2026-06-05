@@ -12,6 +12,13 @@ import { Button, Input, Toaster, type ToastEntry } from "./components/ui";
 
 const selectedRefreshJobTypes = new Set<JobType>(["transcribe", "generate_markdown", "index_note"]);
 
+function getSystemTheme(): "light" | "dark" {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return "dark";
+  }
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
 export function App() {
   const [library, setLibrary] = useState<LibraryState | null>(null);
   const [items, setItems] = useState<ItemSummary[]>([]);
@@ -32,6 +39,9 @@ export function App() {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const selectedItemIdRef = useRef<string | null>(null);
   const previousJobStatusesRef = useRef<Map<string, JobStatus>>(new Map());
+  const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() => getSystemTheme());
+  const themePreference = settings?.theme ?? "dark";
+  const resolvedTheme = themePreference === "system" ? systemTheme : themePreference;
 
   function addToast(entry: Omit<ToastEntry, "id">) {
     setToasts((prev) => [...prev, { ...entry, id: crypto.randomUUID() }]);
@@ -93,6 +103,24 @@ export function App() {
   useEffect(() => {
     selectedItemIdRef.current = selectedItemId;
   }, [selectedItemId]);
+
+  useEffect(() => {
+    if (themePreference !== "system" || typeof window.matchMedia !== "function") {
+      return;
+    }
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => setSystemTheme(media.matches ? "dark" : "light");
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [themePreference]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("dark", resolvedTheme === "dark");
+    root.classList.toggle("light", resolvedTheme === "light");
+    root.style.colorScheme = resolvedTheme;
+  }, [resolvedTheme]);
 
   useEffect(() => {
     void refreshLibraryData().catch(() => setStatusMessage("Choose a library to begin."));
@@ -312,7 +340,13 @@ export function App() {
         ) : (
           <div className="flex min-h-0 flex-1">
             <ItemList items={visibleItems} selectedItemId={selectedItemId} searchResults={view === "search" ? searchResults : []} activeFilterLabel={activeFilter ? activeFilter.name : undefined} isLoading={isLoadingItems} onSelectItem={selectItem} />
-            <ItemDetailView item={selectedItem} jumpToSeconds={jumpToSeconds} isLoading={isLoadingDetail} onReload={() => void Promise.all([refreshLibraryData(), refreshSelectedItem()])} />
+            <ItemDetailView
+              item={selectedItem}
+              jumpToSeconds={jumpToSeconds}
+              isLoading={isLoadingDetail}
+              editorTheme={resolvedTheme}
+              onReload={() => void Promise.all([refreshLibraryData(), refreshSelectedItem()])}
+            />
           </div>
         )}
         <footer className="h-7 shrink-0 border-t border-border bg-card px-3 py-1 text-xs text-muted-foreground">{statusMessage}</footer>

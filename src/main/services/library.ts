@@ -78,12 +78,12 @@ export class LibraryService {
 
   async readSettings(path: string): Promise<LibrarySettings> {
     const raw = await readFile(join(path, "settings.json"), "utf8");
-    return JSON.parse(raw) as LibrarySettings;
+    return this.normalizeSettings(path, JSON.parse(raw) as Partial<LibrarySettings>);
   }
 
-  async writeSettings(path: string, patch: Partial<Pick<LibrarySettings, "transcriptionLanguage">>): Promise<LibrarySettings> {
+  async writeSettings(path: string, patch: Partial<Pick<LibrarySettings, "transcriptionLanguage" | "theme">>): Promise<LibrarySettings> {
     const current = await this.readSettings(path);
-    const next = { ...current, ...patch };
+    const next = this.normalizeSettings(path, { ...current, ...patch });
     await writeFile(join(path, "settings.json"), `${JSON.stringify(next, null, 2)}\n`, "utf8");
     return next;
   }
@@ -125,15 +125,35 @@ export class LibraryService {
       await access(settingsPath, constants.R_OK | constants.W_OK);
       return;
     } catch {
-      const settings: LibrarySettings = {
-        libraryPath: path,
-        theme: "system",
-        defaultImportBehavior: "copy",
-        defaultModelId: null,
-        transcriptionLanguage: "auto",
-      };
+      const settings = this.defaultSettings(path);
       await writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
     }
+  }
+
+  private defaultSettings(path: string): LibrarySettings {
+    return {
+      libraryPath: path,
+      theme: "dark",
+      defaultImportBehavior: "copy",
+      defaultModelId: null,
+      transcriptionLanguage: "auto",
+    };
+  }
+
+  private normalizeSettings(path: string, settings: Partial<LibrarySettings>): LibrarySettings {
+    return {
+      ...this.defaultSettings(path),
+      ...settings,
+      libraryPath: path,
+      theme: this.normalizeTheme(settings.theme),
+    };
+  }
+
+  private normalizeTheme(theme: LibrarySettings["theme"] | undefined): LibrarySettings["theme"] {
+    if (theme === "light" || theme === "dark" || theme === "system") {
+      return theme;
+    }
+    return "dark";
   }
 
   private getSelectedModelId(db: import("./database").VoiceNoterDatabase): ModelId | null {

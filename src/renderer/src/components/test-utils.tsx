@@ -15,7 +15,7 @@ export function createMockApi(): VoiceNoterApi {
       rescanLibrary: vi.fn(),
       getSettings: vi.fn().mockResolvedValue({
         libraryPath: "/tmp/test-library",
-        theme: "system",
+        theme: "dark",
         defaultImportBehavior: "copy",
         defaultModelId: null,
         transcriptionLanguage: "auto",

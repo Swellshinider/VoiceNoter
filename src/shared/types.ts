@@ -203,7 +203,7 @@ export type LibraryApi = {
   openLibraryFolder(): Promise<void>;
   rescanLibrary(): Promise<RescanResult>;
   getSettings(): Promise<LibrarySettings>;
-  updateSettings(patch: Partial<Pick<LibrarySettings, "transcriptionLanguage">>): Promise<LibrarySettings>;
+  updateSettings(patch: Partial<Pick<LibrarySettings, "transcriptionLanguage" | "theme">>): Promise<LibrarySettings>;
 };
 
 export type ImportApi = {

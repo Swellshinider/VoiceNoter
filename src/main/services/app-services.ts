@@ -171,7 +171,7 @@ export class AppServices {
     if (!this.libraryPath || !this.db) {
       return {
         libraryPath: "",
-        theme: "system",
+        theme: "dark",
         defaultImportBehavior: "copy",
         defaultModelId: null,
         transcriptionLanguage: "auto",
@@ -194,7 +194,9 @@ export class AppServices {
     return { ...settings, modelStorageBytes, installedModelCount: models.length };
   }
 
-  async updateSettings(patch: Partial<Pick<LibrarySettings, "transcriptionLanguage">>): Promise<LibrarySettings & { modelStorageBytes: number; installedModelCount: number }> {
+  async updateSettings(
+    patch: Partial<Pick<LibrarySettings, "transcriptionLanguage" | "theme">>,
+  ): Promise<LibrarySettings & { modelStorageBytes: number; installedModelCount: number }> {
     const context = this.requireContext();
     await this.libraryService.writeSettings(context.libraryPath, patch);
     return this.getSettings();

@@ -10,11 +10,13 @@ export function ItemDetail({
   jumpToSeconds,
   isLoading,
   onReload,
+  editorTheme = "dark",
 }: {
   item: ItemDetailType | null;
   jumpToSeconds: number | null;
   isLoading?: boolean;
   onReload: () => void;
+  editorTheme?: "light" | "dark";
 }) {
   const mediaRef = useRef<HTMLMediaElement | null>(null);
   const [markdownText, setMarkdownText] = useState("");
@@ -125,6 +127,7 @@ export function ItemDetail({
               <CodeMirror
                 value={markdownText}
                 height="100%"
+                theme={editorTheme}
                 extensions={[markdown()]}
                 basicSetup={{ lineNumbers: true, foldGutter: true }}
                 onChange={setMarkdownText}
