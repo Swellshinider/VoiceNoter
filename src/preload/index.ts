@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import { ipcChannels } from "../shared/ipc";
 import type {
   ImportApi,
+  DashboardApi,
   ItemsApi,
   LibraryApi,
   ModelsApi,
@@ -56,6 +57,10 @@ const search: SearchApi = {
   reindex: () => ipcRenderer.invoke(ipcChannels.search.reindex),
 };
 
+const dashboard: DashboardApi = {
+  getSummary: () => ipcRenderer.invoke(ipcChannels.dashboard.getSummary),
+};
+
 const models: ModelsApi = {
   listModels: () => ipcRenderer.invoke(ipcChannels.models.list),
   downloadModel: (modelId) => ipcRenderer.invoke(ipcChannels.models.download, modelId),
@@ -69,6 +74,7 @@ const api: VoiceNoterApi = {
   queue,
   items,
   search,
+  dashboard,
   models,
 };
 

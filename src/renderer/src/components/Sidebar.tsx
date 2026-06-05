@@ -1,7 +1,7 @@
-import { Boxes, Folder, Inbox, List, Search, Settings, Tags, Workflow } from "lucide-react";
+import { Boxes, Folder, LayoutDashboard, List, Search, Settings, Tags, Workflow } from "lucide-react";
 import type { ItemSummary } from "../../../shared/types";
 
-export type ViewKey = "inbox" | "all" | "search" | "queue" | "models" | "settings";
+export type ViewKey = "dashboard" | "all" | "search" | "queue" | "models" | "settings";
 
 export type FilterState = { type: "category" | "tag"; id: string; name: string } | null;
 
@@ -27,7 +27,7 @@ export function Sidebar({
         <div className="text-xs text-muted-foreground">Local media notes</div>
       </div>
       <nav className="flex flex-1 flex-col gap-1 overflow-auto p-3">
-        <NavButton icon={<Inbox />} label="Inbox" selected={view === "inbox" && !activeFilter} onClick={() => { onFilterSelect(null); onViewChange("inbox"); }} />
+        <NavButton icon={<LayoutDashboard />} label="Dashboard" selected={view === "dashboard" && !activeFilter} onClick={() => { onFilterSelect(null); onViewChange("dashboard"); }} />
         <NavButton icon={<List />} label="All Items" selected={view === "all" && !activeFilter} onClick={() => { onFilterSelect(null); onViewChange("all"); }} />
         <NavButton icon={<Search />} label="Search Results" selected={view === "search"} onClick={() => onViewChange("search")} />
         <NavButton icon={<Workflow />} label="Processing Queue" selected={view === "queue"} onClick={() => onViewChange("queue")} />

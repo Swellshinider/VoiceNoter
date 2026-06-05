@@ -91,4 +91,15 @@ describe("App", () => {
     await waitFor(() => expect(document.documentElement).toHaveClass("light"));
     expect(document.documentElement).not.toHaveClass("dark");
   });
+
+  it("lands on the dashboard instead of the inbox view", async () => {
+    window.voiceNoter.library.getCurrentLibrary = vi.fn().mockResolvedValue(mockLibraryState);
+    window.voiceNoter.library.getLastLibrary = vi.fn().mockResolvedValue(mockLibraryState.path);
+
+    render(<App />);
+
+    expect(await screen.findByText("Library health at a glance")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Inbox$/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Dashboard$/i })).toBeInTheDocument();
+  });
 });

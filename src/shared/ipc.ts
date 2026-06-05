@@ -32,6 +32,9 @@ export const ipcChannels = {
     search: "search:search",
     reindex: "search:reindex",
   },
+  dashboard: {
+    getSummary: "dashboard:getSummary",
+  },
   models: {
     list: "models:list",
     download: "models:download",

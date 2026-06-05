@@ -21,6 +21,7 @@ import type {
   RescanResult,
   SearchQuery,
   SearchResult,
+  DashboardSummary,
 } from "../../shared/types";
 import { userError, VoiceNoterError } from "../../shared/errors";
 import { getImportCandidate } from "../../shared/validation";
@@ -34,6 +35,7 @@ import { ProcessingService } from "./processing";
 import { QueueService } from "./queue";
 import { RecentLibraryService } from "./recent-library";
 import { SearchService } from "./search";
+import { getDashboardSummary } from "./dashboard";
 
 export class AppServices {
   private readonly libraryService = new LibraryService();
@@ -226,6 +228,11 @@ export class AppServices {
   async listJobs(): Promise<Job[]> {
     if (!this.db || !this.queue) return [];
     return this.queue.listJobs();
+  }
+
+  async getDashboardSummary(): Promise<DashboardSummary> {
+    const context = this.requireContext();
+    return getDashboardSummary(context.libraryPath, context.db);
   }
 
   async retryJob(jobId: string): Promise<Job> {

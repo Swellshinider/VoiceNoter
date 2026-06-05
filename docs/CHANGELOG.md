@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Add a dark theme default with a settings selector for dark, light, and system themes
+- Replace the Inbox tab with a dashboard that shows file counts, storage usage, transcription trends, queue health, and recent pipeline items
 
 ### Fixed
 
