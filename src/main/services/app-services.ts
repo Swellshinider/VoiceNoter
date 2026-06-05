@@ -327,6 +327,17 @@ export class AppServices {
     };
   }
 
+  getMediaPathForItem(itemId: string): string {
+    const { db } = this.requireContext();
+    const row = db.prepare("SELECT library_media_path FROM items WHERE id = ?").get(itemId) as
+      | { library_media_path: string }
+      | undefined;
+    if (!row) {
+      throw new Error(`Item not found: ${itemId}`);
+    }
+    return row.library_media_path;
+  }
+
   async readNote(itemId: string): Promise<NoteContent> {
     const context = this.requireContext();
     return new NoteService(context.libraryPath, context.db).readNote(itemId);

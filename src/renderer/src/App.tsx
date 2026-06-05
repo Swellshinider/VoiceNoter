@@ -1,6 +1,6 @@
 import { Import, Search as SearchIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ItemDetail, ItemSummary, Job, LibrarySettings, LibraryState, ModelInfo, SearchResult } from "../../shared/types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ItemDetail, ItemSummary, Job, JobStatus, JobType, LibrarySettings, LibraryState, ModelInfo, SearchResult } from "../../shared/types";
 import { ItemDetail as ItemDetailView } from "./components/ItemDetail";
 import { ItemList } from "./components/ItemList";
 import { ModelManager } from "./components/ModelManager";
@@ -9,6 +9,8 @@ import { SettingsView } from "./components/SettingsView";
 import { SetupView } from "./components/SetupView";
 import { Sidebar, type FilterState, type ViewKey } from "./components/Sidebar";
 import { Button, Input, Toaster, type ToastEntry } from "./components/ui";
+
+const selectedRefreshJobTypes = new Set<JobType>(["transcribe", "generate_markdown", "index_note"]);
 
 export function App() {
   const [library, setLibrary] = useState<LibraryState | null>(null);
@@ -28,6 +30,8 @@ export function App() {
   const [lastLibraryPath, setLastLibraryPath] = useState<string | null>(null);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const selectedItemIdRef = useRef<string | null>(null);
+  const previousJobStatusesRef = useRef<Map<string, JobStatus>>(new Map());
 
   function addToast(entry: Omit<ToastEntry, "id">) {
     setToasts((prev) => [...prev, { ...entry, id: crypto.randomUUID() }]);
@@ -64,18 +68,30 @@ export function App() {
     }
   }, [view, activeFilter]);
 
+  const refreshSelectedItemById = useCallback(async (itemId: string) => {
+    setIsLoadingDetail(true);
+    try {
+      const detail = await window.voiceNoter.items.getItem(itemId);
+      if (selectedItemIdRef.current === itemId) {
+        setSelectedItem(detail);
+      }
+    } finally {
+      if (selectedItemIdRef.current === itemId) {
+        setIsLoadingDetail(false);
+      }
+    }
+  }, []);
+
   const refreshSelectedItem = useCallback(async () => {
     if (!selectedItemId) {
       setSelectedItem(null);
       return;
     }
-    setIsLoadingDetail(true);
-    try {
-      const detail = await window.voiceNoter.items.getItem(selectedItemId);
-      setSelectedItem(detail);
-    } finally {
-      setIsLoadingDetail(false);
-    }
+    await refreshSelectedItemById(selectedItemId);
+  }, [selectedItemId, refreshSelectedItemById]);
+
+  useEffect(() => {
+    selectedItemIdRef.current = selectedItemId;
   }, [selectedItemId]);
 
   useEffect(() => {
@@ -84,8 +100,22 @@ export function App() {
 
   useEffect(() => {
     const unsubscribeJobs = window.voiceNoter.queue.subscribeToJobs((nextJobs) => {
+      const selected = selectedItemIdRef.current;
+      const shouldRefreshSelected =
+        selected !== null &&
+        nextJobs.some(
+          (job) =>
+            job.itemId === selected &&
+            selectedRefreshJobTypes.has(job.type) &&
+            job.status === "completed" &&
+            previousJobStatusesRef.current.get(job.id) !== "completed",
+        );
+      previousJobStatusesRef.current = new Map(nextJobs.map((job) => [job.id, job.status]));
       setJobs(nextJobs);
       void refreshLibraryData();
+      if (shouldRefreshSelected) {
+        void refreshSelectedItemById(selected);
+      }
     });
     const unsubscribeProcessing = window.voiceNoter.queue.subscribeToProcessingEvents((event) => {
       setStatusMessage(`${event.stage}: ${event.message} (${Math.round(event.progress * 100)}%)`);
@@ -94,7 +124,7 @@ export function App() {
       unsubscribeJobs();
       unsubscribeProcessing();
     };
-  }, [refreshLibraryData]);
+  }, [refreshLibraryData, refreshSelectedItemById]);
 
   useEffect(() => {
     void refreshSelectedItem();

@@ -27,12 +27,14 @@ export class NoteService {
   async generateMarkdownNote(itemId: string, transcriptionModel: ModelId): Promise<NoteContent> {
     const item = this.getItemRow(itemId);
     const transcript = this.getTranscript(itemId);
+    const existing = this.findNoteRow(itemId);
     const now = new Date().toISOString();
-    const notePath = join(this.libraryRoot, "notes", `${now.slice(0, 10)}-${safeSlug(item.title)}.md`);
+    const createdAt = existing?.created_at ?? now;
+    const notePath = existing?.path ?? join(this.libraryRoot, "notes", `${now.slice(0, 10)}-${safeSlug(item.title)}.md`);
     const frontmatter = {
       id: item.id,
       title: item.title,
-      created_at: now,
+      created_at: createdAt,
       source_file: basename(item.original_path),
       library_media_path: item.library_media_path,
       duration_seconds: item.duration_seconds ?? 0,
@@ -50,16 +52,22 @@ export class NoteService {
     const contentHash = hashContent(markdown);
 
     const save = this.db.transaction(() => {
-      this.db
-        .prepare(
-          `
-            INSERT INTO notes (
-              id, item_id, path, title, frontmatter_json, content_hash, created_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `,
-        )
-        .run(randomUUID(), itemId, notePath, item.title, JSON.stringify(frontmatter), contentHash, now, now);
+      if (existing) {
+        this.db
+          .prepare("UPDATE notes SET title = ?, frontmatter_json = ?, content_hash = ?, updated_at = ? WHERE id = ?")
+          .run(item.title, JSON.stringify(frontmatter), contentHash, now, existing.id);
+      } else {
+        this.db
+          .prepare(
+            `
+              INSERT INTO notes (
+                id, item_id, path, title, frontmatter_json, content_hash, created_at, updated_at
+              )
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+          )
+          .run(randomUUID(), itemId, notePath, item.title, JSON.stringify(frontmatter), contentHash, now, now);
+      }
       this.db
         .prepare("UPDATE items SET note_path = ?, status = 'ready', updated_at = ? WHERE id = ?")
         .run(notePath, now, itemId);
@@ -169,25 +177,42 @@ export class NoteService {
   }
 
   private getNoteRow(itemId: string): {
+    id: string;
     path: string;
     title: string;
     frontmatter_json: string;
     content_hash: string;
+    created_at: string;
     updated_at: string;
   } {
-    const row = this.db.prepare("SELECT * FROM notes WHERE item_id = ?").get(itemId) as
-      | {
-          path: string;
-          title: string;
-          frontmatter_json: string;
-          content_hash: string;
-          updated_at: string;
-        }
-      | undefined;
+    const row = this.findNoteRow(itemId);
     if (!row) {
       throw new Error(`Note not found for item: ${itemId}`);
     }
     return row;
+  }
+
+  private findNoteRow(itemId: string): {
+    id: string;
+    path: string;
+    title: string;
+    frontmatter_json: string;
+    content_hash: string;
+    created_at: string;
+    updated_at: string;
+  } | null {
+    const row = this.db.prepare("SELECT * FROM notes WHERE item_id = ? ORDER BY updated_at DESC, rowid DESC LIMIT 1").get(itemId) as
+      | {
+          id: string;
+          path: string;
+          title: string;
+          frontmatter_json: string;
+          content_hash: string;
+          created_at: string;
+          updated_at: string;
+        }
+      | undefined;
+    return row ?? null;
   }
 }
 

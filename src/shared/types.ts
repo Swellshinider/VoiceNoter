@@ -56,6 +56,7 @@ export type ItemSummary = {
 
 export type ItemDetail = ItemSummary & {
   libraryMediaPath: string;
+  mediaUrl: string;
   extractedAudioPath: string | null;
   transcript: Transcript | null;
   note: NoteContent | null;

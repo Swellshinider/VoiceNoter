@@ -1,5 +1,5 @@
 import { Save } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import type { ItemDetail as ItemDetailType } from "../../../shared/types";
@@ -49,8 +49,6 @@ export function ItemDetail({
     }, 900);
     return () => window.clearTimeout(timeout);
   }, [item?.id, item?.note, markdownText, onReload]);
-
-  const mediaSrc = useMemo(() => (item ? toFileUrl(item.libraryMediaPath) : ""), [item]);
 
   if (!item) {
     if (isLoading) {
@@ -109,7 +107,7 @@ export function ItemDetail({
                 }}
                 className="aspect-video w-full rounded bg-black"
                 controls
-                src={mediaSrc}
+                src={item.mediaUrl}
               />
             ) : (
               <audio
@@ -118,7 +116,7 @@ export function ItemDetail({
                 }}
                 className="w-full"
                 controls
-                src={mediaSrc}
+                src={item.mediaUrl}
               />
             )}
           </Panel>
@@ -163,10 +161,6 @@ export function ItemDetail({
       </div>
     </section>
   );
-}
-
-function toFileUrl(path: string): string {
-  return encodeURI(`file://${path}`);
 }
 
 function formatTimestamp(seconds: number): string {

@@ -71,6 +71,7 @@ export const mockItemSummary = {
 export const mockItemDetail = {
   ...mockItemSummary,
   libraryMediaPath: "/tmp/media/original/test.mp3",
+  mediaUrl: "voicenoter-media://items/item-1/media",
   extractedAudioPath: null,
   transcript: {
     id: "transcript-1",

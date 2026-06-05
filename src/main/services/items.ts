@@ -1,6 +1,7 @@
 import type { Category, ItemDetail, ItemSummary, SourceType, Tag } from "../../shared/types";
 import type { VoiceNoterDatabase } from "./database";
 import { randomUUID } from "node:crypto";
+import { createMediaUrl } from "../media-protocol";
 
 export type ItemRow = {
   id: string;
@@ -58,6 +59,7 @@ export function mapItemDetail(db: VoiceNoterDatabase, row: ItemRow): Omit<ItemDe
   return {
     ...mapItemSummary(db, row),
     libraryMediaPath: row.library_media_path,
+    mediaUrl: createMediaUrl(row.id),
     extractedAudioPath: row.extracted_audio_path,
   };
 }

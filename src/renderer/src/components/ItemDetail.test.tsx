@@ -42,6 +42,11 @@ describe("ItemDetail", () => {
     expect(screen.getAllByTestId("codemirror-mock")[0]).toBeInTheDocument();
   });
 
+  it("uses the main-process media URL for playback", () => {
+    render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} />);
+    expect(document.querySelector("audio")?.getAttribute("src")).toBe("voicenoter-media://items/item-1/media");
+  });
+
   it("title input is rendered with item title", () => {
     render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} />);
     expect(screen.getAllByDisplayValue("Test Recording")[0]).toBeInTheDocument();

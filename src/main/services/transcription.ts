@@ -21,6 +21,7 @@ export type TranscriptionResult = {
 
 type WhisperJson = {
   transcription?: Array<{
+    offsets?: { from?: number | string; to?: number | string };
     timestamps?: { from?: string; to?: string };
     text?: string;
   }>;
@@ -48,8 +49,8 @@ export class TranscriptionService {
     const parsed = JSON.parse(await readFile(`${outputBase}.json`, "utf8")) as WhisperJson;
     const segments =
       parsed.transcription?.map((segment) => ({
-        startSeconds: parseWhisperTimestamp(segment.timestamps?.from ?? "00:00:00.000"),
-        endSeconds: parseWhisperTimestamp(segment.timestamps?.to ?? "00:00:00.000"),
+        startSeconds: parseWhisperSegmentSeconds(segment.offsets?.from, segment.timestamps?.from),
+        endSeconds: parseWhisperSegmentSeconds(segment.offsets?.to, segment.timestamps?.to),
         text: segment.text?.trim() ?? "",
       })) ?? [];
     return {
@@ -97,9 +98,7 @@ function runWhisper(
   onProgress: (progress: number) => void,
 ): Promise<void> {
   const args = ["-m", modelPath, "-f", inputPath, "-oj", "-of", outputBase, "-pp"];
-  if (language && language !== "auto") {
-    args.push("-l", language);
-  }
+  args.push("-l", language && language !== "auto" ? language : "auto");
   return new Promise((resolve, reject) => {
     const child = spawn(whisperCli, args, {
       stdio: ["ignore", "ignore", "pipe"],
@@ -132,7 +131,30 @@ function runWhisper(
   });
 }
 
-function parseWhisperTimestamp(timestamp: string): number {
-  const [hours = "0", minutes = "0", seconds = "0"] = timestamp.split(":");
-  return Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds);
+function parseWhisperSegmentSeconds(offset: number | string | undefined, timestamp: string | undefined): number {
+  const offsetSeconds = parseWhisperOffset(offset);
+  if (offsetSeconds !== null) {
+    return offsetSeconds;
+  }
+  return parseWhisperTimestamp(timestamp);
+}
+
+function parseWhisperOffset(offset: number | string | undefined): number | null {
+  if (offset === undefined || offset === null) {
+    return null;
+  }
+  const milliseconds = typeof offset === "number" ? offset : Number(offset);
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) {
+    return null;
+  }
+  return milliseconds / 1000;
+}
+
+function parseWhisperTimestamp(timestamp: string | undefined): number {
+  if (!timestamp) {
+    return 0;
+  }
+  const [hours = "0", minutes = "0", seconds = "0"] = timestamp.replace(",", ".").split(":");
+  const parsed = Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }

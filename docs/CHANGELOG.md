@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
+## [Unreleased] - 04-06-2026
+
+### Fixed
+
+- Fix transcription language auto-detection by passing `-l auto` to whisper.cpp when no manual language is selected
+- Fix whisper timestamp parsing for comma-formatted timestamps and offset metadata
+- Fix item detail refresh after transcription, Markdown generation, or indexing completes
+- Fix media playback by streaming library media through a main-process custom protocol instead of renderer-built `file://` URLs
+- Fix Markdown regeneration to update existing note rows and files instead of duplicating notes during reprocessing
+
 ## [Unreleased] - 03-06-2026
 
 ### Added

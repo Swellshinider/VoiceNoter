@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "vitest";
@@ -51,6 +51,26 @@ describe("notes and search", () => {
       expect(db.prepare("SELECT title FROM items WHERE id = ?").get(itemId)).toEqual({ title: "Research Interview" });
       expect(db.prepare("SELECT name FROM categories").all()).toEqual([{ name: "Research" }]);
       expect(db.prepare("SELECT name FROM tags ORDER BY name").all()).toEqual([{ name: "retrieval" }, { name: "voice" }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("regenerates Markdown in place without duplicating note rows", async () => {
+    const { db, itemId, libraryRoot } = await createImportedItemWithTranscript();
+    try {
+      const noteService = new NoteService(libraryRoot, db);
+      const first = await noteService.generateMarkdownNote(itemId, "base");
+      const existingPath = join(libraryRoot, "notes", "existing-note.md");
+      await writeFile(existingPath, first.markdown.replace("### 00:01:24", "### 00:00:00"), "utf8");
+      db.prepare("UPDATE notes SET path = ? WHERE item_id = ?").run(existingPath, itemId);
+      db.prepare("UPDATE items SET note_path = ? WHERE id = ?").run(existingPath, itemId);
+
+      const regenerated = await noteService.generateMarkdownNote(itemId, "base");
+
+      expect(regenerated.path).toBe(existingPath);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM notes WHERE item_id = ?").get(itemId)).toEqual({ count: 1 });
+      await expect(readFile(existingPath, "utf8")).resolves.toContain("### 00:01:24");
     } finally {
       db.close();
     }
