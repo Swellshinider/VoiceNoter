@@ -15,6 +15,7 @@ vi.mock("@uiw/react-codemirror", () => ({
 describe("App", () => {
   beforeEach(() => {
     window.voiceNoter = createMockApi();
+    document.documentElement.className = "";
   });
 
   it("reloads the selected item when its transcription job completes", async () => {
@@ -60,5 +61,34 @@ describe("App", () => {
     });
     await new Promise((resolve) => window.setTimeout(resolve, 0));
     expect(window.voiceNoter.items.getItem).toHaveBeenCalledTimes(2);
+  });
+
+  it("defaults the renderer to dark theme when no library settings are available", async () => {
+    window.voiceNoter.library.getCurrentLibrary = vi.fn().mockResolvedValue(null);
+    window.voiceNoter.library.getSettings = vi.fn().mockResolvedValue(null);
+
+    render(<App />);
+
+    await waitFor(() => expect(document.documentElement).toHaveClass("dark"));
+    expect(document.documentElement).not.toHaveClass("light");
+  });
+
+  it("applies the saved light theme to the document root", async () => {
+    window.voiceNoter.library.getCurrentLibrary = vi.fn().mockResolvedValue(mockLibraryState);
+    window.voiceNoter.library.getLastLibrary = vi.fn().mockResolvedValue(mockLibraryState.path);
+    window.voiceNoter.library.getSettings = vi.fn().mockResolvedValue({
+      libraryPath: mockLibraryState.path,
+      theme: "light" as const,
+      defaultImportBehavior: "copy" as const,
+      defaultModelId: null,
+      transcriptionLanguage: "auto",
+      modelStorageBytes: 0,
+      installedModelCount: 0,
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(document.documentElement).toHaveClass("light"));
+    expect(document.documentElement).not.toHaveClass("dark");
   });
 });

@@ -16,6 +16,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 720,
     title: "VoiceNoter",
+    backgroundColor: "#0f172a",
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,

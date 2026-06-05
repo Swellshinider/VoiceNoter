@@ -58,6 +58,29 @@ describe("LibraryService", () => {
       errors: [],
     });
   });
+
+  test("defaults new library settings to dark theme", async () => {
+    const root = await tempLibraryRoot();
+    const service = new LibraryService();
+    await service.initializeLibrary(root);
+
+    await expect(service.readSettings(root)).resolves.toMatchObject({
+      libraryPath: root,
+      theme: "dark",
+      transcriptionLanguage: "auto",
+    });
+  });
+
+  test("writes theme changes into library settings", async () => {
+    const root = await tempLibraryRoot();
+    const service = new LibraryService();
+    await service.initializeLibrary(root);
+
+    const next = await service.writeSettings(root, { theme: "light" });
+
+    expect(next.theme).toBe("light");
+    await expect(service.readSettings(root)).resolves.toMatchObject({ theme: "light" });
+  });
 });
 
 async function tempLibraryRoot() {

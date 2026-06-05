@@ -113,9 +113,7 @@ function SetupRow({ icon, title, value, ready }: { icon: React.ReactNode; title:
         <div className="text-sm font-medium">{title}</div>
         <div className="truncate text-xs text-muted-foreground">{value}</div>
       </div>
-      <span className={`rounded px-2 py-0.5 text-xs font-medium ${ready ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>
-        {ready ? "Ready" : "Needed"}
-      </span>
+      <Badge tone={ready ? "success" : "warning"}>{ready ? "Ready" : "Needed"}</Badge>
     </div>
   );
 }

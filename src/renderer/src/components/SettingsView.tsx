@@ -40,16 +40,30 @@ export function SettingsView({
   onOpenFolder: () => void;
   onRescan: () => void;
   onReindex: () => void;
-  onUpdateSettings?: (patch: Partial<Pick<LibrarySettings, "transcriptionLanguage">>) => void;
+  onUpdateSettings?: (patch: Partial<Pick<LibrarySettings, "transcriptionLanguage" | "theme">>) => void;
 }) {
   const selectedModel = models.find((m) => m.selected);
+  const theme = settings?.theme ?? "dark";
   return (
     <div className="flex-1 overflow-auto p-4">
       <Panel className="p-4">
         <div className="text-sm font-medium">Settings</div>
         <div className="mt-4 grid gap-3 text-sm">
           <SettingRow label="Library path" value={library?.path ?? "No library selected"} />
-          <SettingRow label="Theme" value="System" />
+          <div className="grid grid-cols-[180px_1fr] gap-3 rounded-md border border-border bg-background p-3">
+            <label className="text-muted-foreground" htmlFor="theme-select">
+              Theme
+            </label>
+            <Select
+              id="theme-select"
+              value={theme}
+              onChange={(e) => onUpdateSettings?.({ theme: e.target.value as LibrarySettings["theme"] })}
+            >
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+              <option value="system">System</option>
+            </Select>
+          </div>
           <SettingRow label="Default import behavior" value="Copy into library" />
           <SettingRow label="Default model" value={selectedModel ? `${selectedModel.name} (${selectedModel.sizeLabel})` : "None selected"} />
           <div className="grid grid-cols-[180px_1fr] gap-3 rounded-md border border-border bg-background p-3">

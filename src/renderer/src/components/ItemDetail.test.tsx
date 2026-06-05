@@ -6,8 +6,8 @@ import { ItemDetail } from "./ItemDetail";
 import { mockItemDetail, createMockApi } from "./test-utils";
 
 vi.mock("@uiw/react-codemirror", () => ({
-  default: ({ value, onChange }: { value: string; onChange: (val: string) => void }) => (
-    <textarea data-testid="codemirror-mock" value={value} onChange={(e) => onChange(e.target.value)} />
+  default: ({ value, onChange, theme }: { value: string; onChange: (val: string) => void; theme?: string }) => (
+    <textarea data-testid="codemirror-mock" data-theme={theme} value={value} onChange={(e) => onChange(e.target.value)} />
   ),
 }));
 
@@ -40,6 +40,11 @@ describe("ItemDetail", () => {
   it("shows markdown editor when note exists", () => {
     render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} />);
     expect(screen.getAllByTestId("codemirror-mock")[0]).toBeInTheDocument();
+  });
+
+  it("passes the resolved theme to the markdown editor", () => {
+    render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} editorTheme="light" />);
+    expect(screen.getAllByTestId("codemirror-mock")[0]).toHaveAttribute("data-theme", "light");
   });
 
   it("uses the main-process media URL for playback", () => {

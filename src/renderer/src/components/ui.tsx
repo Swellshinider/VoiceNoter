@@ -45,9 +45,9 @@ export function Select({ className = "", ...props }: SelectHTMLAttributes<HTMLSe
 export function Badge({ children, tone = "muted" }: { children: ReactNode; tone?: "muted" | "success" | "warning" | "danger" }) {
   const tones = {
     muted: "bg-muted text-muted-foreground",
-    success: "bg-emerald-100 text-emerald-800",
-    warning: "bg-amber-100 text-amber-900",
-    danger: "bg-red-100 text-red-800",
+    success: "bg-emerald-500/15 text-emerald-300",
+    warning: "bg-amber-500/15 text-amber-300",
+    danger: "bg-red-500/15 text-red-300",
   };
   return <span className={`rounded px-2 py-0.5 text-xs font-medium ${tones[tone]}`}>{children}</span>;
 }
@@ -76,7 +76,7 @@ export function Toast({ toast, onDismiss }: { toast: ToastEntry; onDismiss: (id:
   }, [toast.id, onDismiss]);
 
   const icons = {
-    success: <CheckCircle className="size-4 text-emerald-600 shrink-0" />,
+    success: <CheckCircle className="size-4 text-emerald-400 shrink-0" />,
     error: <AlertCircle className="size-4 text-destructive shrink-0" />,
     info: <Info className="size-4 text-primary shrink-0" />,
   };

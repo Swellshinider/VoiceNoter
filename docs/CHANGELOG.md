@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
+## [Unreleased] - 05-06-2026
+
+### Added
+
+- Add a dark theme default with a settings selector for dark, light, and system themes
+
 ## [Unreleased] - 04-06-2026
 
 ### Fixed
