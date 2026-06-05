@@ -1,19 +1,24 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ItemDetail } from "./ItemDetail";
 import { mockItemDetail, createMockApi } from "./test-utils";
 
-vi.mock("@uiw/react-codemirror", () => ({
-  default: ({ value, onChange, theme }: { value: string; onChange: (val: string) => void; theme?: string }) => (
-    <textarea data-testid="codemirror-mock" data-theme={theme} value={value} onChange={(e) => onChange(e.target.value)} />
-  ),
-}));
-
 describe("ItemDetail", () => {
   beforeEach(() => {
     window.voiceNoter = createMockApi();
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    if (!("fastSeek" in HTMLMediaElement.prototype)) {
+      Object.defineProperty(HTMLMediaElement.prototype, "fastSeek", {
+        configurable: true,
+        value: vi.fn(),
+      });
+    }
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("shows placeholder when no item selected", () => {
@@ -37,14 +42,10 @@ describe("ItemDetail", () => {
     expect(screen.getAllByText("00:00:05")[0]).toBeInTheDocument();
   });
 
-  it("shows markdown editor when note exists", () => {
+  it("does not render the markdown editor or save controls", () => {
     render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} />);
-    expect(screen.getAllByTestId("codemirror-mock")[0]).toBeInTheDocument();
-  });
-
-  it("passes the resolved theme to the markdown editor", () => {
-    render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} editorTheme="light" />);
-    expect(screen.getAllByTestId("codemirror-mock")[0]).toHaveAttribute("data-theme", "light");
+    expect(screen.queryByTestId("codemirror-mock")).toBeNull();
+    expect(screen.queryByRole("button", { name: /save/i })).toBeNull();
   });
 
   it("uses the main-process media URL for playback", () => {
@@ -55,5 +56,36 @@ describe("ItemDetail", () => {
   it("title input is rendered with item title", () => {
     render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} />);
     expect(screen.getAllByDisplayValue("Test Recording")[0]).toBeInTheDocument();
+  });
+
+  it("seeks to the exact segment timestamp and starts playback when a transcript segment is clicked", async () => {
+    const user = userEvent.setup();
+    const fastSeek = vi.fn();
+    Object.defineProperty(HTMLMediaElement.prototype, "fastSeek", {
+      configurable: true,
+      value: fastSeek,
+    });
+
+    render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /00:00:05/i }));
+
+    expect(fastSeek).toHaveBeenCalledWith(5);
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalled();
+  });
+
+  it("highlights the transcript segment that matches playback time", () => {
+    render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} />);
+    const audio = document.querySelector("audio");
+    expect(audio).not.toBeNull();
+
+    if (!audio) {
+      return;
+    }
+
+    fireEvent.play(audio);
+    audio.currentTime = 5;
+    fireEvent.timeUpdate(audio);
+
+    expect(screen.getByRole("button", { name: /00:00:05/i })).toHaveAttribute("aria-current", "true");
   });
 });

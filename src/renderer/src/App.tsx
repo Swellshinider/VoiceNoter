@@ -344,7 +344,6 @@ export function App() {
               item={selectedItem}
               jumpToSeconds={jumpToSeconds}
               isLoading={isLoadingDetail}
-              editorTheme={resolvedTheme}
               onReload={() => void Promise.all([refreshLibraryData(), refreshSelectedItem()])}
             />
           </div>
