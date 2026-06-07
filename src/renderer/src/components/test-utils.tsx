@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, type RenderResult } from "@testing-library/react";
 import { vi } from "vitest";
-import type { VoiceNoterApi } from "../../../shared/types";
+import type { DashboardSummary, VoiceNoterApi } from "../../../shared/types";
 
 export function createMockApi(): VoiceNoterApi {
   return {
@@ -45,6 +45,9 @@ export function createMockApi(): VoiceNoterApi {
     search: {
       search: vi.fn().mockResolvedValue([]),
       reindex: vi.fn(),
+    },
+    dashboard: {
+      getSummary: vi.fn().mockResolvedValue(mockDashboardSummary),
     },
     models: {
       listModels: vi.fn().mockResolvedValue([]),
@@ -122,6 +125,74 @@ export const mockLibraryState = {
   isInitialized: true,
   ffmpegStatus: "available" as const,
   selectedModelId: "base" as const,
+};
+
+export const mockDashboardSummary: DashboardSummary = {
+  counts: {
+    totalItems: 3,
+    audioItems: 2,
+    videoItems: 1,
+    transcribedItems: 2,
+    pendingItems: 1,
+    failedItems: 0,
+    cancelledItems: 0,
+  },
+  storage: {
+    totalBytes: 1_500_000_000,
+    originalMediaBytes: 1_000_000_000,
+    extractedAudioBytes: 250_000_000,
+    notesBytes: 80_000_000,
+    modelsBytes: 120_000_000,
+    databaseBytes: 20_000_000,
+    indexesBytes: 10_000_000,
+    otherBytes: 20_000_000,
+  },
+  trend: [
+    { date: "2026-06-01", completedTranscriptions: 0 },
+    { date: "2026-06-02", completedTranscriptions: 1 },
+    { date: "2026-06-03", completedTranscriptions: 0 },
+    { date: "2026-06-04", completedTranscriptions: 2 },
+    { date: "2026-06-05", completedTranscriptions: 1 },
+    { date: "2026-06-06", completedTranscriptions: 0 },
+    { date: "2026-06-07", completedTranscriptions: 0 },
+    { date: "2026-06-08", completedTranscriptions: 1 },
+    { date: "2026-06-09", completedTranscriptions: 0 },
+    { date: "2026-06-10", completedTranscriptions: 0 },
+    { date: "2026-06-11", completedTranscriptions: 3 },
+    { date: "2026-06-12", completedTranscriptions: 1 },
+    { date: "2026-06-13", completedTranscriptions: 2 },
+    { date: "2026-06-14", completedTranscriptions: 0 },
+  ],
+  latestItems: [
+    {
+      itemId: "item-1",
+      title: "Test Recording",
+      sourceType: "audio",
+      status: "transcribed",
+      date: "2026-06-13T10:00:00.000Z",
+    },
+    {
+      itemId: "item-2",
+      title: "Queued Interview",
+      sourceType: "video",
+      status: "pending",
+      date: "2026-06-13T12:00:00.000Z",
+    },
+    {
+      itemId: "item-3",
+      title: "Failed Clip",
+      sourceType: "audio",
+      status: "failed",
+      date: "2026-06-12T09:00:00.000Z",
+    },
+  ],
+  queueHealth: {
+    pendingJobs: 2,
+    runningJobs: 1,
+    failedJobs: 1,
+    activeJobs: 3,
+    oldestPendingAt: "2026-06-12T08:30:00.000Z",
+  },
 };
 
 export function renderWithApi(ui: React.ReactElement): RenderResult {

@@ -913,7 +913,7 @@ Recommended layout:
 ├──────────────┬──────────────────────┬───────────────────────┤
 │ Sidebar      │ Item List             │ Main Detail Panel      │
 │              │                       │                       │
-│ Inbox        │ Search results        │ Markdown note          │
+│ Dashboard    │ Search results        │ Markdown note          │
 │ All Notes    │ Recent notes          │ Transcript             │
 │ Recordings   │ Processing queue      │ Media player           │
 │ Categories   │                       │ AI chat                │
@@ -925,7 +925,7 @@ Recommended layout:
 
 Primary views:
 
-- Inbox
+- Dashboard
 - All Notes
 - Item Detail
 - Search

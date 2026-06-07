@@ -29,6 +29,8 @@ export function registerIpcHandlers(services: AppServices): void {
   ipcMain.handle(ipcChannels.search.search, (_event, query) => services.search(query));
   ipcMain.handle(ipcChannels.search.reindex, () => services.reindex());
 
+  ipcMain.handle(ipcChannels.dashboard.getSummary, () => services.getDashboardSummary());
+
   ipcMain.handle(ipcChannels.models.list, () => services.listModels());
   ipcMain.handle(ipcChannels.models.download, (_event, modelId: string) => services.downloadModel(modelId));
   ipcMain.handle(ipcChannels.models.delete, (_event, modelId: string) => services.deleteModel(modelId));

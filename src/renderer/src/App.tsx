@@ -1,6 +1,18 @@
 import { Import, Search as SearchIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ItemDetail, ItemSummary, Job, JobStatus, JobType, LibrarySettings, LibraryState, ModelInfo, SearchResult } from "../../shared/types";
+import type {
+  DashboardSummary,
+  ItemDetail,
+  ItemSummary,
+  Job,
+  JobStatus,
+  JobType,
+  LibrarySettings,
+  LibraryState,
+  ModelInfo,
+  SearchResult,
+} from "../../shared/types";
+import { DashboardView } from "./components/DashboardView";
 import { ItemDetail as ItemDetailView } from "./components/ItemDetail";
 import { ItemList } from "./components/ItemList";
 import { ModelManager } from "./components/ModelManager";
@@ -24,7 +36,7 @@ export function App() {
   const [items, setItems] = useState<ItemSummary[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [models, setModels] = useState<ModelInfo[]>([]);
-  const [view, setView] = useState<ViewKey>("inbox");
+  const [view, setView] = useState<ViewKey>("dashboard");
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<ItemDetail | null>(null);
   const [searchText, setSearchText] = useState("");
@@ -34,6 +46,7 @@ export function App() {
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
   const [activeFilter, setActiveFilter] = useState<FilterState>(null);
   const [settings, setSettings] = useState<LibrarySettings | null>(null);
+  const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
   const [lastLibraryPath, setLastLibraryPath] = useState<string | null>(null);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
@@ -52,31 +65,31 @@ export function App() {
   }
 
   const refreshLibraryData = useCallback(async () => {
-    const query = activeFilter
-      ? { view: activeFilter.type as "category" | "tag", ...(activeFilter.type === "category" ? { categoryId: activeFilter.id } : { tagId: activeFilter.id }) }
-      : view === "inbox"
-        ? { view: "inbox" as const }
-        : { view: "all" as const };
     setIsLoadingItems(true);
     try {
-      const [nextLibrary, nextLastLibraryPath, nextJobs, nextModels, nextItems, nextSettings] = await Promise.all([
+      const [nextLibrary, nextLastLibraryPath, nextJobs, nextModels, nextItems, nextSettings, nextDashboardSummary] = await Promise.all([
         window.voiceNoter.library.getCurrentLibrary(),
         window.voiceNoter.library.getLastLibrary().catch(() => null),
         window.voiceNoter.queue.listJobs().catch(() => []),
         window.voiceNoter.models.listModels().catch(() => []),
-        window.voiceNoter.items.listItems(query).catch(() => []),
+        window.voiceNoter.items.listItems({ view: "all" }).catch(() => []),
         window.voiceNoter.library.getSettings().catch(() => null),
+        window.voiceNoter.dashboard.getSummary().catch(() => null),
       ]);
       setLibrary(nextLibrary);
+      if (!nextLibrary) {
+        setStatusMessage("Choose a library to begin.");
+      }
       setLastLibraryPath(nextLastLibraryPath);
       setJobs(nextJobs);
       setModels(nextModels);
       setItems(nextItems);
       setSettings(nextSettings);
+      setDashboardSummary(nextDashboardSummary);
     } finally {
       setIsLoadingItems(false);
     }
-  }, [view, activeFilter]);
+  }, []);
 
   const refreshSelectedItemById = useCallback(async (itemId: string) => {
     setIsLoadingDetail(true);
@@ -158,17 +171,19 @@ export function App() {
     void refreshSelectedItem();
   }, [refreshSelectedItem]);
 
-  useEffect(() => {
-    void refreshLibraryData().catch(() => {});
-  }, [view, activeFilter, refreshLibraryData]);
-
   const visibleItems = useMemo(() => {
     if (view === "search" && searchResults.length) {
       const ids = new Set(searchResults.map((result) => result.itemId));
       return items.filter((item) => ids.has(item.id));
     }
+    if (activeFilter?.type === "category") {
+      return items.filter((item) => item.category?.id === activeFilter.id);
+    }
+    if (activeFilter?.type === "tag") {
+      return items.filter((item) => item.tags.some((tag) => tag.id === activeFilter.id));
+    }
     return items;
-  }, [items, searchResults, view]);
+  }, [activeFilter, items, searchResults, view]);
 
   async function chooseLibrary() {
     setStatusMessage("Choosing library");
@@ -176,7 +191,13 @@ export function App() {
       const next = await window.voiceNoter.library.chooseLibrary();
       setLibrary(next);
       setLastLibraryPath(next.path);
-      setView("inbox");
+      setSelectedItemId(null);
+      setSelectedItem(null);
+      setSearchText("");
+      setSearchResults([]);
+      setActiveFilter(null);
+      setJumpToSeconds(null);
+      setView("dashboard");
       await refreshLibraryData();
       setStatusMessage("Library ready");
     } catch (error) {
@@ -191,7 +212,13 @@ export function App() {
       const next = await window.voiceNoter.library.openLastLibrary();
       setLibrary(next);
       setLastLibraryPath(next.path);
-      setView("inbox");
+      setSelectedItemId(null);
+      setSelectedItem(null);
+      setSearchText("");
+      setSearchResults([]);
+      setActiveFilter(null);
+      setJumpToSeconds(null);
+      setView("dashboard");
       await refreshLibraryData();
       setStatusMessage("Library ready");
     } catch (error) {
@@ -337,6 +364,21 @@ export function App() {
                 })
             }
           />
+        ) : view === "dashboard" ? (
+          <div className="flex min-h-0 flex-1">
+            <DashboardView
+              summary={dashboardSummary}
+              isLoading={isLoadingItems}
+              onSelectItem={selectItem}
+              onOpenQueue={() => setView("queue")}
+            />
+            <ItemDetailView
+              item={selectedItem}
+              jumpToSeconds={jumpToSeconds}
+              isLoading={isLoadingDetail}
+              onReload={() => void Promise.all([refreshLibraryData(), refreshSelectedItem()])}
+            />
+          </div>
         ) : (
           <div className="flex min-h-0 flex-1">
             <ItemList items={visibleItems} selectedItemId={selectedItemId} searchResults={view === "search" ? searchResults : []} activeFilterLabel={activeFilter ? activeFilter.name : undefined} isLoading={isLoadingItems} onSelectItem={selectItem} />
@@ -344,7 +386,6 @@ export function App() {
               item={selectedItem}
               jumpToSeconds={jumpToSeconds}
               isLoading={isLoadingDetail}
-              editorTheme={resolvedTheme}
               onReload={() => void Promise.all([refreshLibraryData(), refreshSelectedItem()])}
             />
           </div>

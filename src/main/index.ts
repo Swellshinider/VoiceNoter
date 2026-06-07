@@ -1,4 +1,4 @@
-import { app, BrowserWindow, net, protocol } from "electron";
+import { app, BrowserWindow, protocol } from "electron";
 import { join } from "node:path";
 import { registerIpcHandlers } from "./ipc/register";
 import { handleVoiceNoterMediaProtocol, registerVoiceNoterMediaScheme } from "./media-protocol";
@@ -33,7 +33,7 @@ function createWindow() {
 }
 
 void app.whenReady().then(() => {
-  handleVoiceNoterMediaProtocol(protocol, net, (itemId) => services.getMediaPathForItem(itemId));
+  handleVoiceNoterMediaProtocol(protocol, (itemId) => services.getMediaPathForItem(itemId));
   createWindow();
 
   app.on("activate", () => {

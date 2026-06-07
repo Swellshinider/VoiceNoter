@@ -1,56 +1,66 @@
-import { Save } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import CodeMirror from "@uiw/react-codemirror";
-import { markdown } from "@codemirror/lang-markdown";
-import type { ItemDetail as ItemDetailType } from "../../../shared/types";
-import { Button, Input, Panel, Spinner } from "./ui";
+import type { ItemDetail as ItemDetailType, TranscriptSegment } from "../../../shared/types";
+import { Input, Panel, Spinner } from "./ui";
 
 export function ItemDetail({
   item,
   jumpToSeconds,
   isLoading,
   onReload,
-  editorTheme = "dark",
 }: {
   item: ItemDetailType | null;
   jumpToSeconds: number | null;
   isLoading?: boolean;
   onReload: () => void;
-  editorTheme?: "light" | "dark";
 }) {
   const mediaRef = useRef<HTMLMediaElement | null>(null);
-  const [markdownText, setMarkdownText] = useState("");
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [title, setTitle] = useState("");
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   useEffect(() => {
-    setMarkdownText(item?.note?.markdown ?? "");
     setTitle(item?.title ?? "");
-  }, [item?.id, item?.note?.markdown, item?.title]);
+  }, [item?.id, item?.title]);
 
   useEffect(() => {
-    if (jumpToSeconds !== null && mediaRef.current) {
-      mediaRef.current.currentTime = jumpToSeconds;
-      void mediaRef.current.play().catch(() => undefined);
-    }
-  }, [jumpToSeconds]);
+    setCurrentTime(jumpToSeconds ?? 0);
+    setIsPlaying(false);
+  }, [item?.id, jumpToSeconds]);
 
   useEffect(() => {
-    if (!item?.note || markdownText === item.note.markdown) {
+    const media = mediaRef.current;
+    if (!media) {
       return;
     }
-    setSaveState("saving");
-    const timeout = window.setTimeout(() => {
-      void window.voiceNoter.items
-        .saveNote(item.id, markdownText)
-        .then(() => {
-          setSaveState("saved");
-          onReload();
-        })
-        .catch(() => setSaveState("error"));
-    }, 900);
-    return () => window.clearTimeout(timeout);
-  }, [item?.id, item?.note, markdownText, onReload]);
+
+    const syncCurrentTime = () => setCurrentTime(media.currentTime);
+    const markPlaying = () => setIsPlaying(true);
+    const markPaused = () => setIsPlaying(false);
+    syncCurrentTime();
+    media.addEventListener("timeupdate", syncCurrentTime);
+    media.addEventListener("seeked", syncCurrentTime);
+    media.addEventListener("loadedmetadata", syncCurrentTime);
+    media.addEventListener("play", markPlaying);
+    media.addEventListener("pause", markPaused);
+    media.addEventListener("ended", markPaused);
+    return () => {
+      media.removeEventListener("timeupdate", syncCurrentTime);
+      media.removeEventListener("seeked", syncCurrentTime);
+      media.removeEventListener("loadedmetadata", syncCurrentTime);
+      media.removeEventListener("play", markPlaying);
+      media.removeEventListener("pause", markPaused);
+      media.removeEventListener("ended", markPaused);
+    };
+  }, [item?.id]);
+
+  useEffect(() => {
+    if (jumpToSeconds === null) {
+      return;
+    }
+    seekMediaToSeconds(mediaRef.current, jumpToSeconds, setCurrentTime, setIsPlaying);
+  }, [jumpToSeconds, item?.id]);
+
+  const activeSegmentIndex = item?.transcript && isPlaying ? getActiveSegmentIndex(item.transcript.segments, currentTime) : null;
 
   if (!item) {
     if (isLoading) {
@@ -78,25 +88,6 @@ export function ItemDetail({
               }
             }}
           />
-          <span className="text-xs text-muted-foreground">{saveState}</span>
-          <Button
-            variant="secondary"
-            disabled={!item.note}
-            onClick={() => {
-              if (!item.note) return;
-              setSaveState("saving");
-              void window.voiceNoter.items
-                .saveNote(item.id, markdownText)
-                .then(() => {
-                  setSaveState("saved");
-                  onReload();
-                })
-                .catch(() => setSaveState("error"));
-            }}
-          >
-            <Save data-icon="inline-start" />
-            Save
-          </Button>
         </div>
       </div>
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(360px,1fr)_320px] gap-3 overflow-hidden p-3">
@@ -122,40 +113,31 @@ export function ItemDetail({
               />
             )}
           </Panel>
-          <Panel className="min-h-0 flex-1 overflow-hidden">
-            {item.note ? (
-              <CodeMirror
-                value={markdownText}
-                height="100%"
-                theme={editorTheme}
-                extensions={[markdown()]}
-                basicSetup={{ lineNumbers: true, foldGutter: true }}
-                onChange={setMarkdownText}
-              />
-            ) : (
-              <div className="p-4 text-sm text-muted-foreground">Markdown note will appear after processing completes.</div>
-            )}
-          </Panel>
         </div>
         <Panel className="min-h-0 overflow-auto p-3">
           <div className="mb-3 text-sm font-medium">Transcript</div>
           {item.transcript ? (
             <div className="flex flex-col gap-2">
-              {item.transcript.segments.map((segment) => (
-                <button
-                  key={`${segment.startSeconds}-${segment.text}`}
-                  className="rounded-md border border-border bg-background p-2 text-left text-sm hover:bg-secondary"
-                  onClick={() => {
-                    if (mediaRef.current) {
-                      mediaRef.current.currentTime = segment.startSeconds;
-                      void mediaRef.current.play().catch(() => undefined);
-                    }
-                  }}
-                >
-                  <div className="mb-1 text-xs font-medium text-primary">{formatTimestamp(segment.startSeconds)}</div>
-                  <div className="text-muted-foreground">{segment.text}</div>
-                </button>
-              ))}
+              {item.transcript.segments.map((segment, index) => {
+                const isActive = activeSegmentIndex === index;
+                return (
+                  <button
+                    key={`${segment.startSeconds}-${segment.text}`}
+                    aria-current={isActive ? "true" : undefined}
+                    className={`rounded-md border p-2 text-left text-sm transition ${
+                      isActive
+                        ? "border-primary bg-primary/10 text-foreground shadow-sm"
+                        : "border-border bg-background hover:bg-secondary"
+                    }`}
+                    onClick={() => {
+                      seekMediaToSeconds(mediaRef.current, segment.startSeconds, setCurrentTime, setIsPlaying);
+                    }}
+                  >
+                    <div className="mb-1 text-xs font-medium text-primary">{formatTimestamp(segment.startSeconds)}</div>
+                    <div className="text-muted-foreground">{segment.text}</div>
+                  </button>
+                );
+              })}
             </div>
           ) : (
             <div className="text-sm text-muted-foreground">Transcript will appear after local transcription completes.</div>
@@ -172,4 +154,43 @@ function formatTimestamp(seconds: number): string {
   const minutes = Math.floor((wholeSeconds % 3600) / 60);
   const remainingSeconds = wholeSeconds % 60;
   return [hours, minutes, remainingSeconds].map((value) => String(value).padStart(2, "0")).join(":");
+}
+
+function seekMediaToSeconds(
+  media: HTMLMediaElement | null,
+  seconds: number,
+  onTimeChange: (seconds: number) => void,
+  onPlayingChange: (isPlaying: boolean) => void,
+): void {
+  onTimeChange(seconds);
+  onPlayingChange(true);
+  if (!media) {
+    return;
+  }
+  const fastSeek = media as HTMLMediaElement & { fastSeek?: (time: number) => void };
+  if (typeof fastSeek.fastSeek === "function") {
+    fastSeek.fastSeek(seconds);
+  } else {
+    media.currentTime = seconds;
+  }
+  void media.play().catch(() => undefined);
+}
+
+function getActiveSegmentIndex(segments: TranscriptSegment[], currentTime: number): number | null {
+  if (segments.length === 0) {
+    return null;
+  }
+  const directHit = segments.findIndex((segment) => currentTime >= segment.startSeconds && currentTime < segment.endSeconds);
+  if (directHit !== -1) {
+    return directHit;
+  }
+  if (currentTime < segments[0]!.startSeconds) {
+    return null;
+  }
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    if (currentTime >= segments[index]!.startSeconds) {
+      return index;
+    }
+  }
+  return null;
 }

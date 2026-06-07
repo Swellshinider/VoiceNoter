@@ -157,6 +157,58 @@ export type SearchResult = {
   startSeconds: number | null;
 };
 
+export type DashboardItemStatus = "transcribed" | "pending" | "failed" | "cancelled";
+
+export type DashboardCounts = {
+  totalItems: number;
+  audioItems: number;
+  videoItems: number;
+  transcribedItems: number;
+  pendingItems: number;
+  failedItems: number;
+  cancelledItems: number;
+};
+
+export type DashboardStorageBreakdown = {
+  totalBytes: number;
+  originalMediaBytes: number;
+  extractedAudioBytes: number;
+  notesBytes: number;
+  modelsBytes: number;
+  databaseBytes: number;
+  indexesBytes: number;
+  otherBytes: number;
+};
+
+export type DashboardTrendPoint = {
+  date: string;
+  completedTranscriptions: number;
+};
+
+export type DashboardLatestItem = {
+  itemId: string;
+  title: string;
+  sourceType: SourceType;
+  status: DashboardItemStatus;
+  date: string;
+};
+
+export type DashboardQueueHealth = {
+  pendingJobs: number;
+  runningJobs: number;
+  failedJobs: number;
+  activeJobs: number;
+  oldestPendingAt: string | null;
+};
+
+export type DashboardSummary = {
+  counts: DashboardCounts;
+  storage: DashboardStorageBreakdown;
+  trend: DashboardTrendPoint[];
+  latestItems: DashboardLatestItem[];
+  queueHealth: DashboardQueueHealth;
+};
+
 export type ModelInfo = {
   id: ModelId;
   name: string;
@@ -232,6 +284,10 @@ export type SearchApi = {
   reindex(): Promise<ReindexResult>;
 };
 
+export type DashboardApi = {
+  getSummary(): Promise<DashboardSummary>;
+};
+
 export type ModelsApi = {
   listModels(): Promise<ModelInfo[]>;
   downloadModel(modelId: ModelId): Promise<ModelDownloadJob>;
@@ -245,6 +301,7 @@ export type VoiceNoterApi = {
   queue: QueueApi;
   items: ItemsApi;
   search: SearchApi;
+  dashboard: DashboardApi;
   models: ModelsApi;
 };
 
