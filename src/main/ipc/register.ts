@@ -16,11 +16,13 @@ export function registerIpcHandlers(services: AppServices): void {
   ipcMain.handle(ipcChannels.import.chooseFiles, () => services.chooseFilesForImport());
   ipcMain.handle(ipcChannels.import.files, (_event, paths: string[]) => services.importFiles(paths));
 
-  ipcMain.handle(ipcChannels.queue.listJobs, () => services.listJobs());
+  ipcMain.handle(ipcChannels.queue.listJobs, (_event, query) => services.listJobs(query));
+  ipcMain.handle(ipcChannels.queue.getSummary, () => services.getQueueSummary());
   ipcMain.handle(ipcChannels.queue.retryJob, (_event, jobId: string) => services.retryJob(jobId));
   ipcMain.handle(ipcChannels.queue.cancelJob, (_event, jobId: string) => services.cancelJob(jobId));
 
   ipcMain.handle(ipcChannels.items.list, (_event, query) => services.listItems(query));
+  ipcMain.handle(ipcChannels.items.getFacets, () => services.getItemFacets());
   ipcMain.handle(ipcChannels.items.get, (_event, itemId: string) => services.getItem(itemId));
   ipcMain.handle(ipcChannels.items.readNote, (_event, itemId: string) => services.readNote(itemId));
   ipcMain.handle(ipcChannels.items.saveNote, (_event, itemId: string, markdown: string) => services.saveNote(itemId, markdown));
@@ -30,6 +32,7 @@ export function registerIpcHandlers(services: AppServices): void {
   ipcMain.handle(ipcChannels.search.reindex, () => services.reindex());
 
   ipcMain.handle(ipcChannels.dashboard.getSummary, () => services.getDashboardSummary());
+  ipcMain.handle(ipcChannels.dashboard.getStorageBreakdown, () => services.getDashboardStorageBreakdown());
 
   ipcMain.handle(ipcChannels.models.list, () => services.listModels());
   ipcMain.handle(ipcChannels.models.download, (_event, modelId: string) => services.downloadModel(modelId));
@@ -38,7 +41,7 @@ export function registerIpcHandlers(services: AppServices): void {
 
   services.onJobsChanged((jobs) => {
     for (const window of BrowserWindow.getAllWindows()) {
-      window.webContents.send(ipcChannels.queue.jobsChanged, jobs);
+      window.webContents.send(ipcChannels.queue.queueUpdated, jobs);
     }
   });
   services.onProcessingEvent((event) => {

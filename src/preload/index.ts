@@ -29,13 +29,14 @@ const importApi: ImportApi = {
 };
 
 const queue: QueueApi = {
-  listJobs: () => ipcRenderer.invoke(ipcChannels.queue.listJobs),
+  listJobs: (query) => ipcRenderer.invoke(ipcChannels.queue.listJobs, query),
+  getSummary: () => ipcRenderer.invoke(ipcChannels.queue.getSummary),
   retryJob: (jobId) => ipcRenderer.invoke(ipcChannels.queue.retryJob, jobId),
   cancelJob: (jobId) => ipcRenderer.invoke(ipcChannels.queue.cancelJob, jobId),
-  subscribeToJobs: (callback) => {
-    const listener = (_event: Electron.IpcRendererEvent, jobs: Parameters<typeof callback>[0]) => callback(jobs);
-    ipcRenderer.on(ipcChannels.queue.jobsChanged, listener);
-    return () => ipcRenderer.off(ipcChannels.queue.jobsChanged, listener);
+  subscribeToQueueUpdates: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, update: Parameters<typeof callback>[0]) => callback(update);
+    ipcRenderer.on(ipcChannels.queue.queueUpdated, listener);
+    return () => ipcRenderer.off(ipcChannels.queue.queueUpdated, listener);
   },
   subscribeToProcessingEvents: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, event: Parameters<typeof callback>[0]) => callback(event);
@@ -46,6 +47,7 @@ const queue: QueueApi = {
 
 const items: ItemsApi = {
   listItems: (query) => ipcRenderer.invoke(ipcChannels.items.list, query),
+  getFacets: () => ipcRenderer.invoke(ipcChannels.items.getFacets),
   getItem: (itemId) => ipcRenderer.invoke(ipcChannels.items.get, itemId),
   readNote: (itemId) => ipcRenderer.invoke(ipcChannels.items.readNote, itemId),
   saveNote: (itemId, markdown) => ipcRenderer.invoke(ipcChannels.items.saveNote, itemId, markdown),
@@ -59,6 +61,7 @@ const search: SearchApi = {
 
 const dashboard: DashboardApi = {
   getSummary: () => ipcRenderer.invoke(ipcChannels.dashboard.getSummary),
+  getStorageBreakdown: () => ipcRenderer.invoke(ipcChannels.dashboard.getStorageBreakdown),
 };
 
 const models: ModelsApi = {

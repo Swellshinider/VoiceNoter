@@ -1,25 +1,25 @@
 import { Boxes, Folder, LayoutDashboard, List, Search, Settings, Tags, Workflow } from "lucide-react";
-import type { ItemSummary } from "../../../shared/types";
+import type { ItemFacets } from "../../../shared/types";
 
 export type ViewKey = "dashboard" | "all" | "search" | "queue" | "models" | "settings";
 
-export type FilterState = { type: "category" | "tag"; id: string; name: string } | null;
+export type FilterState = { type: "category"; id: string; name: string } | { type: "tag"; id: string; name: string } | null;
 
 export function Sidebar({
   view,
-  items,
+  facets,
   activeFilter,
   onViewChange,
   onFilterSelect,
 }: {
   view: ViewKey;
-  items: ItemSummary[];
+  facets: ItemFacets | null;
   activeFilter: FilterState;
   onViewChange: (view: ViewKey) => void;
   onFilterSelect: (filter: FilterState) => void;
 }) {
-  const categories = uniqueById(items.map((item) => item.category).filter(Boolean) as Array<{ id: string; name: string }>);
-  const tags = uniqueById(items.flatMap((item) => item.tags));
+  const categories = facets?.categories ?? [];
+  const tags = facets?.tags ?? [];
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-card">
       <div className="border-b border-border p-4">
@@ -85,7 +85,7 @@ function SidebarGroup({
 }: {
   icon: React.ReactNode;
   label: string;
-  items: Array<{ id: string; name: string }>;
+  items: Array<{ id: string; name: string; itemCount: number }>;
   selectedId: string | null;
   onItemClick: (id: string, name: string) => void;
 }) {
@@ -102,7 +102,7 @@ function SidebarGroup({
           {items.map((item) => (
             <button
               key={item.id}
-              className={`flex h-8 w-full items-center rounded-md px-3 text-left text-sm transition ${
+              className={`flex h-8 w-full items-center justify-between rounded-md px-3 text-left text-sm transition ${
                 selectedId === item.id
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-secondary hover:text-foreground"
@@ -110,21 +110,11 @@ function SidebarGroup({
               onClick={() => onItemClick(item.id, item.name)}
             >
               <span className="truncate">{item.name}</span>
+              <span className="ml-2 text-[10px] tabular-nums opacity-70">{item.itemCount}</span>
             </button>
           ))}
         </div>
       )}
     </div>
   );
-}
-
-function uniqueById(items: Array<{ id: string; name: string }>) {
-  const seen = new Set<string>();
-  return items
-    .filter((item) => {
-      if (seen.has(item.id)) return false;
-      seen.add(item.id);
-      return true;
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
 }

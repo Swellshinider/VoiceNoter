@@ -16,13 +16,15 @@ export const ipcChannels = {
   },
   queue: {
     listJobs: "queue:listJobs",
+    getSummary: "queue:getSummary",
     retryJob: "queue:retryJob",
     cancelJob: "queue:cancelJob",
-    jobsChanged: "queue:jobsChanged",
+    queueUpdated: "queue:updated",
     processingEvent: "queue:processingEvent",
   },
   items: {
     list: "items:list",
+    getFacets: "items:getFacets",
     get: "items:get",
     readNote: "items:readNote",
     saveNote: "items:saveNote",
@@ -34,6 +36,7 @@ export const ipcChannels = {
   },
   dashboard: {
     getSummary: "dashboard:getSummary",
+    getStorageBreakdown: "dashboard:getStorageBreakdown",
   },
   models: {
     list: "models:list",

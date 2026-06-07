@@ -1,12 +1,43 @@
 import { RotateCw, X } from "lucide-react";
-import type { Job } from "../../../shared/types";
-import { Badge, Button, Panel } from "./ui";
+import type { Job, QueueSummary } from "../../../shared/types";
+import { Badge, Button, Panel, Spinner } from "./ui";
 
-export function QueueView({ jobs, onRetry, onCancel }: { jobs: Job[]; onRetry: (jobId: string) => void; onCancel: (jobId: string) => void }) {
+export function QueueView({
+  jobs,
+  summary,
+  isLoading,
+  isLoadingMore,
+  hasMore,
+  onLoadMore,
+  onRetry,
+  onCancel,
+}: {
+  jobs: Job[];
+  summary: QueueSummary | null;
+  isLoading?: boolean;
+  isLoadingMore?: boolean;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
+  onRetry: (jobId: string) => void;
+  onCancel: (jobId: string) => void;
+}) {
   return (
     <div className="flex-1 overflow-auto p-4">
       <Panel>
         <div className="border-b border-border p-3 text-sm font-medium">Processing Queue</div>
+        {summary ? (
+          <div className="grid grid-cols-2 gap-2 border-b border-border p-3 text-sm md:grid-cols-4">
+            <Metric label="Pending" value={summary.pendingJobs} />
+            <Metric label="Running" value={summary.runningJobs} />
+            <Metric label="Completed" value={summary.completedJobs} />
+            <Metric label="Failed" value={summary.failedJobs} />
+          </div>
+        ) : isLoading ? (
+          <div className="flex items-center gap-2 border-b border-border p-3 text-sm text-muted-foreground">
+            <Spinner className="size-4" />
+            Loading queue...
+          </div>
+        ) : null}
         {jobs.length === 0 ? (
           <div className="p-4 text-sm text-muted-foreground">No jobs yet.</div>
         ) : (
@@ -38,7 +69,30 @@ export function QueueView({ jobs, onRetry, onCancel }: { jobs: Job[]; onRetry: (
             ))}
           </div>
         )}
+        {hasMore || isLoadingMore ? (
+          <div className="border-t border-border p-3">
+            <Button variant="secondary" className="w-full" disabled={!hasMore || isLoadingMore} onClick={() => onLoadMore?.()}>
+              {isLoadingMore ? (
+                <>
+                  <Spinner className="size-4" />
+                  Loading more
+                </>
+              ) : (
+                "Load more"
+              )}
+            </Button>
+          </div>
+        ) : null}
       </Panel>
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border border-border bg-background p-2 text-center">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
     </div>
   );
 }

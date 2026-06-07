@@ -1,4 +1,4 @@
-import { access, copyFile, mkdir } from "node:fs/promises";
+import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -49,8 +49,6 @@ export class ImportService {
       const sourceType = getSourceType(candidate.extension);
       const title = titleFromFilename(candidate.filename);
       const libraryMediaPath = join(this.libraryRoot, "media", "original", `${itemId}-${safeFilename(candidate.filename)}`);
-      await mkdir(join(this.libraryRoot, "media", "original"), { recursive: true });
-      await copyFile(path, libraryMediaPath);
 
       const now = new Date().toISOString();
       const createImportedItem = this.db.transaction(() => {
@@ -61,12 +59,12 @@ export class ImportService {
                 id, title, source_type, original_path, library_media_path, extracted_audio_path,
                 note_path, category_id, duration_seconds, language, status, created_at, updated_at, imported_at
               )
-              VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, 'processing', ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, 'importing', ?, ?, ?)
             `,
           )
           .run(itemId, title, sourceType, path, libraryMediaPath, now, now, now);
 
-        this.insertJob(itemId, "import_file", "completed", 1);
+        this.insertJob(itemId, "import_file", "pending", 0);
         this.insertJob(itemId, "inspect_media", "pending", 0);
         if (sourceType === "video") {
           this.insertJob(itemId, "extract_audio", "pending", 0);

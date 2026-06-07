@@ -1,7 +1,16 @@
 // @vitest-environment jsdom
 import { render, type RenderResult } from "@testing-library/react";
 import { vi } from "vitest";
-import type { DashboardSummary, VoiceNoterApi } from "../../../shared/types";
+import type {
+  DashboardStorageBreakdown,
+  DashboardSummary,
+  ItemFacets,
+  ItemSummary,
+  Job,
+  PageResult,
+  SearchResult,
+  VoiceNoterApi,
+} from "../../../shared/types";
 
 export function createMockApi(): VoiceNoterApi {
   return {
@@ -29,25 +38,28 @@ export function createMockApi(): VoiceNoterApi {
       importFiles: vi.fn().mockResolvedValue({ importedItems: [], rejectedFiles: [] }),
     },
     queue: {
-      listJobs: vi.fn().mockResolvedValue([]),
+      listJobs: vi.fn().mockResolvedValue(mockQueuePage),
+      getSummary: vi.fn().mockResolvedValue(mockQueueSummary),
       retryJob: vi.fn(),
       cancelJob: vi.fn(),
-      subscribeToJobs: vi.fn().mockReturnValue(() => {}),
+      subscribeToQueueUpdates: vi.fn().mockReturnValue(() => {}),
       subscribeToProcessingEvents: vi.fn().mockReturnValue(() => {}),
     },
     items: {
-      listItems: vi.fn().mockResolvedValue([]),
+      listItems: vi.fn().mockResolvedValue(mockItemPage),
+      getFacets: vi.fn().mockResolvedValue(mockItemFacets),
       getItem: vi.fn(),
       readNote: vi.fn(),
       saveNote: vi.fn(),
       updateItemMetadata: vi.fn(),
     },
     search: {
-      search: vi.fn().mockResolvedValue([]),
+      search: vi.fn().mockResolvedValue(mockSearchPage),
       reindex: vi.fn(),
     },
     dashboard: {
       getSummary: vi.fn().mockResolvedValue(mockDashboardSummary),
+      getStorageBreakdown: vi.fn().mockResolvedValue(mockStorageBreakdown),
     },
     models: {
       listModels: vi.fn().mockResolvedValue([]),
@@ -58,17 +70,25 @@ export function createMockApi(): VoiceNoterApi {
   };
 }
 
-export const mockItemSummary = {
+export const mockItemSummary: ItemSummary = {
   id: "item-1",
   title: "Test Recording",
-  sourceType: "audio" as const,
-  status: "ready" as const,
+  sourceType: "audio",
+  status: "ready",
   notePath: "/tmp/notes/test.md",
   durationSeconds: 120,
   category: null,
   tags: [],
   importedAt: "2026-06-03T00:00:00.000Z",
   updatedAt: "2026-06-03T00:00:00.000Z",
+};
+
+export const mockItemPage: PageResult<ItemSummary> = {
+  items: [mockItemSummary],
+  total: 1,
+  limit: 50,
+  offset: 0,
+  nextOffset: null,
 };
 
 export const mockItemDetail = {
@@ -99,16 +119,54 @@ export const mockItemDetail = {
   },
 };
 
-export const mockJob = {
+export const mockJob: Job = {
   id: "job-1",
   itemId: "item-1",
-  type: "transcribe" as const,
-  status: "running" as const,
+  type: "transcribe",
+  status: "running",
   progress: 0.5,
   error: null,
   createdAt: "2026-06-03T00:00:00.000Z",
   startedAt: "2026-06-03T00:00:01.000Z",
   completedAt: null,
+};
+
+export const mockQueuePage: PageResult<Job> = {
+  items: [mockJob],
+  total: 1,
+  limit: 50,
+  offset: 0,
+  nextOffset: null,
+};
+
+export const mockQueueSummary = {
+  totalJobs: 3,
+  pendingJobs: 1,
+  runningJobs: 1,
+  completedJobs: 1,
+  failedJobs: 0,
+  cancelledJobs: 0,
+  activeJobs: 2,
+  oldestPendingAt: "2026-06-03T00:00:00.000Z",
+};
+
+export const mockSearchResult: SearchResult = {
+  itemId: "item-1",
+  notePath: "/tmp/notes/test.md",
+  title: "Test Recording",
+  snippet: "matching text",
+  source: "transcript",
+  sourceType: "audio",
+  status: "ready",
+  startSeconds: 5,
+};
+
+export const mockSearchPage: PageResult<SearchResult> = {
+  items: [mockSearchResult],
+  total: 1,
+  limit: 50,
+  offset: 0,
+  nextOffset: null,
 };
 
 export const mockModelInfo = {
@@ -127,6 +185,22 @@ export const mockLibraryState = {
   selectedModelId: "base" as const,
 };
 
+export const mockStorageBreakdown: DashboardStorageBreakdown = {
+  totalBytes: 1_500_000_000,
+  originalMediaBytes: 1_000_000_000,
+  extractedAudioBytes: 250_000_000,
+  notesBytes: 80_000_000,
+  modelsBytes: 120_000_000,
+  databaseBytes: 20_000_000,
+  indexesBytes: 10_000_000,
+  otherBytes: 20_000_000,
+};
+
+export const mockItemFacets: ItemFacets = {
+  categories: [{ id: "cat-1", name: "Meetings", itemCount: 2 }],
+  tags: [{ id: "tag-1", name: "Follow-up", itemCount: 1 }],
+};
+
 export const mockDashboardSummary: DashboardSummary = {
   counts: {
     totalItems: 3,
@@ -136,16 +210,6 @@ export const mockDashboardSummary: DashboardSummary = {
     pendingItems: 1,
     failedItems: 0,
     cancelledItems: 0,
-  },
-  storage: {
-    totalBytes: 1_500_000_000,
-    originalMediaBytes: 1_000_000_000,
-    extractedAudioBytes: 250_000_000,
-    notesBytes: 80_000_000,
-    modelsBytes: 120_000_000,
-    databaseBytes: 20_000_000,
-    indexesBytes: 10_000_000,
-    otherBytes: 20_000_000,
   },
   trend: [
     { date: "2026-06-01", completedTranscriptions: 0 },

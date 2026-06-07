@@ -13,7 +13,7 @@ describe("QueueService", () => {
     const { db } = await createLibraryWithImportedItem();
     try {
       const queue = new QueueService(db);
-      const [inspectJob, transcribeJob] = await queue.listJobs().then((jobs) => [
+      const [inspectJob, transcribeJob] = await queue.listJobs().then((page) => page.items).then((jobs) => [
         jobs.find((job) => job.type === "inspect_media")!,
         jobs.find((job) => job.type === "transcribe")!,
       ]);
@@ -23,7 +23,7 @@ describe("QueueService", () => {
         retryable: true,
       }));
 
-      expect((await queue.listJobs()).find((job) => job.id === inspectJob.id)).toEqual(
+      expect((await queue.listJobs()).items.find((job) => job.id === inspectJob.id)).toEqual(
         expect.objectContaining({
           status: "failed",
           error: expect.objectContaining({ title: "FFmpeg execution failed", retryable: true }),
@@ -45,7 +45,7 @@ describe("QueueService", () => {
     const { db } = await createLibraryWithImportedItem();
     try {
       const queue = new QueueService(db);
-      const inspectJob = (await queue.listJobs()).find((job) => job.type === "inspect_media")!;
+      const inspectJob = (await queue.listJobs()).items.find((job) => job.type === "inspect_media")!;
 
       queue.failJob(inspectJob.id, userError("FFmpeg execution failed", "The bundled media process exited with code 1.", {
         retryable: true,
@@ -53,13 +53,13 @@ describe("QueueService", () => {
 
       expect(db.prepare("SELECT status FROM items").get()).toEqual({ status: "failed" });
       expect(db.prepare("SELECT type, status FROM jobs ORDER BY rowid").all()).toEqual([
-        { type: "import_file", status: "completed" },
+        { type: "import_file", status: "pending" },
         { type: "inspect_media", status: "failed" },
         { type: "transcribe", status: "failed" },
         { type: "generate_markdown", status: "failed" },
         { type: "index_note", status: "failed" },
       ]);
-      const downstream = (await queue.listJobs()).filter((job) => job.type !== "import_file" && job.type !== "inspect_media");
+      const downstream = (await queue.listJobs()).items.filter((job) => job.type !== "import_file" && job.type !== "inspect_media");
       expect(downstream).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -85,13 +85,13 @@ describe("QueueService", () => {
     const { db } = await createLibraryWithImportedItem();
     try {
       const queue = new QueueService(db);
-      const inspectJob = (await queue.listJobs()).find((job) => job.type === "inspect_media")!;
+      const inspectJob = (await queue.listJobs()).items.find((job) => job.type === "inspect_media")!;
 
       await queue.cancelJob(inspectJob.id);
 
       expect(db.prepare("SELECT status FROM items").get()).toEqual({ status: "cancelled" });
       expect(db.prepare("SELECT type, status FROM jobs ORDER BY rowid").all()).toEqual([
-        { type: "import_file", status: "completed" },
+        { type: "import_file", status: "pending" },
         { type: "inspect_media", status: "cancelled" },
         { type: "transcribe", status: "cancelled" },
         { type: "generate_markdown", status: "cancelled" },
@@ -115,13 +115,13 @@ describe("QueueService", () => {
         `,
       ).run(JSON.stringify(userError("Previous processing step failed", "A previous step failed.", { retryable: true })), now, now);
       const queue = new QueueService(db);
-      const inspectJob = (await queue.listJobs()).find((job) => job.type === "inspect_media")!;
+      const inspectJob = (await queue.listJobs()).items.find((job) => job.type === "inspect_media")!;
 
       await queue.retryJob(inspectJob.id);
 
       expect(db.prepare("SELECT status FROM items").get()).toEqual({ status: "processing" });
       expect(db.prepare("SELECT type, status, progress, error_message, started_at, completed_at FROM jobs ORDER BY rowid").all()).toEqual([
-        { type: "import_file", status: "completed", progress: 1, error_message: null, started_at: expect.any(String), completed_at: expect.any(String) },
+        { type: "import_file", status: "pending", progress: 0, error_message: null, started_at: null, completed_at: null },
         { type: "inspect_media", status: "pending", progress: 0, error_message: null, started_at: null, completed_at: null },
         { type: "transcribe", status: "pending", progress: 0, error_message: null, started_at: null, completed_at: null },
         { type: "generate_markdown", status: "pending", progress: 0, error_message: null, started_at: null, completed_at: null },
@@ -136,15 +136,36 @@ describe("QueueService", () => {
     const { db } = await createLibraryWithImportedItem();
     try {
       const queue = new QueueService(db);
-      const inspectJob = (await queue.listJobs()).find((job) => job.type === "inspect_media")!;
+      const inspectJob = (await queue.listJobs()).items.find((job) => job.type === "inspect_media")!;
       queue.startJob(inspectJob.id);
 
       const recovered = queue.recoverUnfinishedJobs();
 
       expect(recovered).toHaveLength(1);
-      expect((await queue.listJobs()).find((job) => job.id === inspectJob.id)).toEqual(
+      expect((await queue.listJobs()).items.find((job) => job.id === inspectJob.id)).toEqual(
         expect.objectContaining({ status: "pending", startedAt: null }),
       );
+    } finally {
+      db.close();
+    }
+  });
+
+  test("paginates jobs and summarizes queue state", async () => {
+    const { db } = await createLibraryWithImportedItem();
+    try {
+      const queue = new QueueService(db);
+
+      const firstPage = await queue.listJobs({ limit: 2, offset: 0 });
+      const secondPage = await queue.listJobs({ limit: 2, offset: 2 });
+      const summary = await queue.getSummary();
+
+      expect(firstPage.total).toBeGreaterThan(0);
+      expect(firstPage.items).toHaveLength(2);
+      expect(firstPage.nextOffset).toBe(2);
+      expect(secondPage.offset).toBe(2);
+      expect(summary.totalJobs).toBe(firstPage.total);
+      expect(summary.pendingJobs).toBeGreaterThan(0);
+      expect(summary.activeJobs).toBeGreaterThan(0);
     } finally {
       db.close();
     }

@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "vitest";
@@ -10,7 +10,7 @@ import { ProcessingService } from "./processing";
 import { QueueService } from "./queue";
 
 describe("ProcessingService", () => {
-  test("missing selected model fails transcription with a readable error", async () => {
+  test("copies imported media during the import_file job and advances the pipeline", async () => {
     const sourceRoot = await mkdtemp(join(tmpdir(), "voicenoter-source-"));
     const libraryRoot = await mkdtemp(join(tmpdir(), "voicenoter-library-"));
     const mediaPath = join(sourceRoot, "Lecture One.mp3");
@@ -18,15 +18,46 @@ describe("ProcessingService", () => {
     await new LibraryService().initializeLibrary(libraryRoot);
     const db = openVoiceNoterDatabase(join(libraryRoot, "voicenoter.db"));
     try {
-      await new ImportService(libraryRoot, db).importFiles([mediaPath]);
-      db.prepare("UPDATE jobs SET status = 'completed', progress = 1 WHERE type = 'inspect_media'").run();
-
+      const importResult = await new ImportService(libraryRoot, db).importFiles([mediaPath]);
+      const itemId = importResult.importedItems[0]!.id;
       const queue = new QueueService(db);
       const service = new ProcessingService(libraryRoot, db, queue);
+
       const processed = await service.processNextPendingJob();
 
+      expect(processed?.type).toBe("import_file");
+      const copiedPath = db.prepare("SELECT library_media_path FROM items WHERE id = ?").get(itemId) as { library_media_path: string };
+      await expect(readFile(copiedPath.library_media_path, "utf8")).resolves.toBe("fake audio content");
+      expect(db.prepare("SELECT status FROM items WHERE id = ?").get(itemId)).toEqual({ status: "processing" });
+      expect(db.prepare("SELECT type, status, progress FROM jobs ORDER BY rowid").all()).toEqual([
+        { type: "import_file", status: "completed", progress: 1 },
+        { type: "inspect_media", status: "pending", progress: 0 },
+        { type: "transcribe", status: "pending", progress: 0 },
+        { type: "generate_markdown", status: "pending", progress: 0 },
+        { type: "index_note", status: "pending", progress: 0 },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("missing selected model fails transcription with a readable error", async () => {
+    const sourceRoot = await mkdtemp(join(tmpdir(), "voicenoter-source-"));
+    const libraryRoot = await mkdtemp(join(tmpdir(), "voicenoter-library-"));
+    const mediaPath = join(sourceRoot, "Lecture One.mp3");
+      await writeFile(mediaPath, "fake audio content", "utf8");
+      await new LibraryService().initializeLibrary(libraryRoot);
+      const db = openVoiceNoterDatabase(join(libraryRoot, "voicenoter.db"));
+      try {
+        await new ImportService(libraryRoot, db).importFiles([mediaPath]);
+        db.prepare("UPDATE jobs SET status = 'completed', progress = 1 WHERE type IN ('import_file', 'inspect_media')").run();
+
+        const queue = new QueueService(db);
+        const service = new ProcessingService(libraryRoot, db, queue);
+        const processed = await service.processNextPendingJob();
+
       expect(processed?.type).toBe("transcribe");
-      const transcribeJob = (await queue.listJobs()).find((job) => job.type === "transcribe");
+      const transcribeJob = (await queue.listJobs()).items.find((job) => job.type === "transcribe");
       expect(transcribeJob).toEqual(
         expect.objectContaining({
           status: "failed",
@@ -36,7 +67,7 @@ describe("ProcessingService", () => {
           }),
         }),
       );
-      expect((await queue.listJobs()).find((job) => job.type === "generate_markdown")).toEqual(
+      expect((await queue.listJobs()).items.find((job) => job.type === "generate_markdown")).toEqual(
         expect.objectContaining({
           status: "failed",
           error: expect.objectContaining({
@@ -45,7 +76,7 @@ describe("ProcessingService", () => {
           }),
         }),
       );
-      expect((await queue.listJobs()).find((job) => job.type === "index_note")).toEqual(
+      expect((await queue.listJobs()).items.find((job) => job.type === "index_note")).toEqual(
         expect.objectContaining({
           status: "failed",
           error: expect.objectContaining({
@@ -86,7 +117,7 @@ describe("ProcessingService", () => {
       db.prepare("UPDATE items SET status = 'failed' WHERE id = ?").run(itemId);
 
       const queue = new QueueService(db);
-      const indexJob = (await queue.listJobs()).find((job) => job.type === "index_note")!;
+      const indexJob = (await queue.listJobs()).items.find((job) => job.type === "index_note")!;
       await queue.retryJob(indexJob.id);
       const processed = await new ProcessingService(libraryRoot, db, queue).processNextPendingJob();
 

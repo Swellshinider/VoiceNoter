@@ -7,6 +7,7 @@ import type {
   ImportResult,
   ItemDetail,
   ItemListQuery,
+  ItemFacets,
   ItemMetadataUpdate,
   ItemSummary,
   Job,
@@ -19,15 +20,20 @@ import type {
   ProcessingEvent,
   ReindexResult,
   RescanResult,
+  DashboardStorageBreakdown,
   SearchQuery,
   SearchResult,
   DashboardSummary,
+  PageResult,
+  QueueListQuery,
+  QueueSummary,
+  QueueUpdate,
 } from "../../shared/types";
 import { userError, VoiceNoterError } from "../../shared/errors";
 import { getImportCandidate } from "../../shared/validation";
 import { openVoiceNoterDatabase, type VoiceNoterDatabase } from "./database";
 import { ImportService } from "./import-service";
-import { mapItemDetail, mapItemSummary, type ItemRow } from "./items";
+import { getItemFacets, listItemSummaries, mapItemDetail, type ItemRow } from "./items";
 import { LibraryService } from "./library";
 import { ModelService } from "./model";
 import { NoteService, hashContent } from "./note";
@@ -35,7 +41,7 @@ import { ProcessingService } from "./processing";
 import { QueueService } from "./queue";
 import { RecentLibraryService } from "./recent-library";
 import { SearchService } from "./search";
-import { getDashboardSummary } from "./dashboard";
+import { getDashboardStorageBreakdown, getDashboardSummary } from "./dashboard";
 
 export class AppServices {
   private readonly libraryService = new LibraryService();
@@ -112,7 +118,7 @@ export class AppServices {
     this.processing = new ProcessingService(path, this.db, this.queue);
     this.unsubscribeQueueEvents.forEach((unsubscribe) => unsubscribe());
     this.unsubscribeQueueEvents = [
-      this.queue.onJobsChanged((jobs) => this.events.emit("jobsChanged", jobs)),
+      this.queue.onJobsChanged((update) => this.events.emit("queueUpdated", update)),
       this.queue.onProcessingEvent((event) => this.events.emit("processingEvent", event)),
     ];
     void this.processing.processAllPending().catch((error) => {
@@ -225,14 +231,25 @@ export class AppServices {
     return result;
   }
 
-  async listJobs(): Promise<Job[]> {
-    if (!this.db || !this.queue) return [];
-    return this.queue.listJobs();
+  async listJobs(query: QueueListQuery = {}): Promise<PageResult<Job>> {
+    if (!this.db || !this.queue) {
+      return { items: [], total: 0, limit: query.limit ?? 50, offset: query.offset ?? 0, nextOffset: null };
+    }
+    return this.queue.listJobs(query);
   }
 
   async getDashboardSummary(): Promise<DashboardSummary> {
     const context = this.requireContext();
-    return getDashboardSummary(context.libraryPath, context.db);
+    return getDashboardSummary(context.db);
+  }
+
+  async getDashboardStorageBreakdown(): Promise<DashboardStorageBreakdown> {
+    const context = this.requireContext();
+    return getDashboardStorageBreakdown(context.libraryPath);
+  }
+
+  async getQueueSummary(): Promise<QueueSummary> {
+    return this.requireContext().queue.getSummary();
   }
 
   async retryJob(jobId: string): Promise<Job> {
@@ -248,10 +265,10 @@ export class AppServices {
     return this.requireContext().queue.cancelJob(jobId);
   }
 
-  onJobsChanged(callback: (jobs: Job[]) => void): () => void {
-    const listener = (jobs: Job[]) => callback(jobs);
-    this.events.on("jobsChanged", listener);
-    return () => this.events.off("jobsChanged", listener);
+  onJobsChanged(callback: (update: QueueUpdate) => void): () => void {
+    const listener = (update: QueueUpdate) => callback(update);
+    this.events.on("queueUpdated", listener);
+    return () => this.events.off("queueUpdated", listener);
   }
 
   onProcessingEvent(callback: Parameters<QueueService["onProcessingEvent"]>[0]): () => void {
@@ -260,34 +277,15 @@ export class AppServices {
     return () => this.events.off("processingEvent", listener);
   }
 
-  async listItems(query: ItemListQuery = {}): Promise<ItemSummary[]> {
-    if (!this.db) return [];
-    const db = this.db;
-    const clauses: string[] = [];
-    const params: unknown[] = [];
-    if (query.view === "inbox") {
-      clauses.push("items.status != 'ready'");
+  async listItems(query: ItemListQuery = {}): Promise<PageResult<ItemSummary>> {
+    if (!this.db) {
+      return { items: [], total: 0, limit: query.limit ?? 50, offset: query.offset ?? 0, nextOffset: null };
     }
-    if (query.view === "category" && query.categoryId) {
-      clauses.push("items.category_id = ?");
-      params.push(query.categoryId);
-    }
-    if (query.view === "tag" && query.tagId) {
-      clauses.push("items.id IN (SELECT item_id FROM item_tags WHERE tag_id = ?)");
-      params.push(query.tagId);
-    }
-    const rows = db
-      .prepare(
-        `
-          SELECT items.*, categories.name AS category_name
-          FROM items
-          LEFT JOIN categories ON categories.id = items.category_id
-          ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""}
-          ORDER BY imported_at DESC
-        `,
-      )
-      .all(...params) as ItemRow[];
-    return rows.map((row) => mapItemSummary(db, row));
+    return listItemSummaries(this.db, query);
+  }
+
+  async getItemFacets(): Promise<ItemFacets> {
+    return getItemFacets(this.requireContext().db);
   }
 
   async getItem(itemId: string): Promise<ItemDetail> {
@@ -385,7 +383,7 @@ export class AppServices {
     return this.getItem(itemId);
   }
 
-  async search(query: SearchQuery): Promise<SearchResult[]> {
+  async search(query: SearchQuery): Promise<PageResult<SearchResult>> {
     return new SearchService(this.requireContext().db).search(query);
   }
 
