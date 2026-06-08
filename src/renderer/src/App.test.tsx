@@ -118,6 +118,44 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: /^Dashboard$/i })).toBeInTheDocument();
   });
 
+  it("opens dashboard items in All Items and keeps the dashboard overview-only", async () => {
+    const user = userEvent.setup();
+    const dashboardItemDetail = {
+      ...mockItemDetail,
+      id: "item-2",
+      title: "Queued Interview",
+      sourceType: "video" as const,
+      note: {
+        ...mockItemDetail.note,
+        itemId: "item-2",
+        frontmatter: { id: "item-2", title: "Queued Interview" },
+      },
+      transcript: {
+        ...mockItemDetail.transcript,
+        itemId: "item-2",
+      },
+    };
+
+    window.voiceNoter.library.getCurrentLibrary = vi.fn().mockResolvedValue(mockLibraryState);
+    window.voiceNoter.library.getLastLibrary = vi.fn().mockResolvedValue(mockLibraryState.path);
+    window.voiceNoter.queue.getSummary = vi.fn().mockResolvedValue(mockQueueSummary);
+    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ categories: [], tags: [] });
+    window.voiceNoter.items.listItems = vi.fn().mockResolvedValue({ ...mockItemPage, items: [{ ...mockItemSummary, id: "item-2", title: "Queued Interview", sourceType: "video", status: "pending" }] });
+    window.voiceNoter.items.getItem = vi.fn().mockResolvedValue(dashboardItemDetail);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /Queued Interview/i }));
+
+    await waitFor(() => expect(window.voiceNoter.items.listItems).toHaveBeenCalledWith(expect.objectContaining({ view: "all", limit: 50, offset: 0 })));
+    expect(screen.getByText("Transcript")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^Dashboard$/i }));
+
+    expect(screen.getByText("Library health at a glance")).toBeInTheDocument();
+    expect(screen.queryByText("Transcript")).toBeNull();
+  });
+
   it("loads the first paged item list only when All Items is opened", async () => {
     const user = userEvent.setup();
     window.voiceNoter.library.getCurrentLibrary = vi.fn().mockResolvedValue(mockLibraryState);

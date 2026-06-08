@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Defer dashboard storage calculations until the user is on the dashboard
 - Replace sidebar category and tag derivation from loaded items with fast facet counts from the database
+- Keep the dashboard overview-only and open recent item clicks in All Items instead of showing the detail panel there
 
 ## [Unreleased] - 05-06-2026
 

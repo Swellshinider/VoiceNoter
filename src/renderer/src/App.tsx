@@ -468,6 +468,13 @@ export function App() {
     setJumpToSeconds(startSeconds ?? null);
   }
 
+  function openDashboardItem(itemId: string) {
+    setActiveFilter(null);
+    setJumpToSeconds(null);
+    setSelectedItemId(itemId);
+    setView("all");
+  }
+
   function handleFilterSelect(filter: FilterState) {
     setActiveFilter(filter);
     setView("all");
@@ -592,17 +599,14 @@ export function App() {
             }
           />
         ) : view === "dashboard" ? (
-          <div className="flex min-h-0 flex-1">
-            <DashboardView
-              summary={dashboardSummary}
-              storage={dashboardStorage}
-              isLoading={!dashboardSummary}
-              isLoadingStorage={isLoadingDashboardStorage}
-              onSelectItem={selectItem}
-              onOpenQueue={() => setView("queue")}
-            />
-            <ItemDetailView item={selectedItem} jumpToSeconds={jumpToSeconds} isLoading={isLoadingDetail} onReload={() => void reloadSelectedItemAndVisibleList()} />
-          </div>
+          <DashboardView
+            summary={dashboardSummary}
+            storage={dashboardStorage}
+            isLoading={!dashboardSummary}
+            isLoadingStorage={isLoadingDashboardStorage}
+            onSelectItem={openDashboardItem}
+            onOpenQueue={() => setView("queue")}
+          />
         ) : (
           <div className="flex min-h-0 flex-1">
             <ItemList
