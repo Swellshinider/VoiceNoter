@@ -88,28 +88,6 @@ export class LibraryService {
     return next;
   }
 
-  async getSettingsWithStorage(path: string): Promise<LibrarySettings> {
-    const settings = await this.readSettings(path);
-    const modelsDir = join(path, "models");
-    let totalBytes = 0;
-    let installedCount = 0;
-    try {
-      const { readdir } = await import("node:fs/promises");
-      const files = await readdir(modelsDir);
-      for (const file of files) {
-        if (file.endsWith(".bin")) {
-          const filePath = join(modelsDir, file);
-          const fileStat = await stat(filePath);
-          totalBytes += fileStat.size;
-          installedCount++;
-        }
-      }
-    } catch {
-      // models dir may not exist yet
-    }
-    return { ...settings, modelStorageBytes: totalBytes, installedModelCount: installedCount };
-  }
-
   private async ensureWritableDirectory(path: string): Promise<void> {
     await mkdir(path, { recursive: true });
     const result = await stat(path);

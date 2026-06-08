@@ -104,11 +104,37 @@ export type ItemMetadataUpdate = {
   tagIds?: string[];
 };
 
+export type PageRequest = {
+  limit?: number;
+  offset?: number;
+};
+
+export type PageResult<T> = {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+  nextOffset: number | null;
+};
+
+export type CountedCategory = Category & {
+  itemCount: number;
+};
+
+export type CountedTag = Tag & {
+  itemCount: number;
+};
+
+export type ItemFacets = {
+  categories: CountedCategory[];
+  tags: CountedTag[];
+};
+
 export type ItemListQuery = {
   view?: "inbox" | "all" | "category" | "tag";
   categoryId?: string;
   tagId?: string;
-};
+} & PageRequest;
 
 export type JobStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
@@ -133,6 +159,26 @@ export type Job = {
   completedAt: ISODateTime | null;
 };
 
+export type QueueListQuery = PageRequest & {
+  status?: JobStatus[];
+};
+
+export type QueueSummary = {
+  totalJobs: number;
+  pendingJobs: number;
+  runningJobs: number;
+  completedJobs: number;
+  failedJobs: number;
+  cancelledJobs: number;
+  activeJobs: number;
+  oldestPendingAt: string | null;
+};
+
+export type QueueUpdate = {
+  changedJobs: Job[];
+  summary: QueueSummary;
+};
+
 export type ProcessingEvent = {
   itemId: string;
   jobId: string;
@@ -146,7 +192,7 @@ export type SearchQuery = {
   text: string;
   categoryId?: string;
   tagId?: string;
-};
+} & PageRequest;
 
 export type SearchResult = {
   itemId: string;
@@ -154,6 +200,8 @@ export type SearchResult = {
   title: string;
   snippet: string;
   source: "title" | "note" | "transcript" | "category" | "tag";
+  sourceType: SourceType;
+  status: ItemStatus;
   startSeconds: number | null;
 };
 
@@ -203,7 +251,6 @@ export type DashboardQueueHealth = {
 
 export type DashboardSummary = {
   counts: DashboardCounts;
-  storage: DashboardStorageBreakdown;
   trend: DashboardTrendPoint[];
   latestItems: DashboardLatestItem[];
   queueHealth: DashboardQueueHealth;
@@ -246,6 +293,11 @@ export type LibrarySettings = {
   installedModelCount?: number;
 };
 
+export type LibrarySettingsWithStats = LibrarySettings & {
+  modelStorageBytes: number;
+  installedModelCount: number;
+};
+
 export type LibraryApi = {
   getCurrentLibrary(): Promise<LibraryState | null>;
   getLastLibrary(): Promise<string | null>;
@@ -254,8 +306,8 @@ export type LibraryApi = {
   validateLibrary(path: string): Promise<LibraryValidationResult>;
   openLibraryFolder(): Promise<void>;
   rescanLibrary(): Promise<RescanResult>;
-  getSettings(): Promise<LibrarySettings>;
-  updateSettings(patch: Partial<Pick<LibrarySettings, "transcriptionLanguage" | "theme">>): Promise<LibrarySettings>;
+  getSettings(): Promise<LibrarySettingsWithStats>;
+  updateSettings(patch: Partial<Pick<LibrarySettings, "transcriptionLanguage" | "theme">>): Promise<LibrarySettingsWithStats>;
 };
 
 export type ImportApi = {
@@ -264,15 +316,17 @@ export type ImportApi = {
 };
 
 export type QueueApi = {
-  listJobs(): Promise<Job[]>;
+  listJobs(query?: QueueListQuery): Promise<PageResult<Job>>;
+  getSummary(): Promise<QueueSummary>;
   retryJob(jobId: string): Promise<Job>;
   cancelJob(jobId: string): Promise<Job>;
-  subscribeToJobs(callback: (jobs: Job[]) => void): Unsubscribe;
+  subscribeToQueueUpdates(callback: (update: QueueUpdate) => void): Unsubscribe;
   subscribeToProcessingEvents(callback: (event: ProcessingEvent) => void): Unsubscribe;
 };
 
 export type ItemsApi = {
-  listItems(query?: ItemListQuery): Promise<ItemSummary[]>;
+  listItems(query?: ItemListQuery): Promise<PageResult<ItemSummary>>;
+  getFacets(): Promise<ItemFacets>;
   getItem(itemId: string): Promise<ItemDetail>;
   readNote(itemId: string): Promise<NoteContent>;
   saveNote(itemId: string, markdown: string): Promise<NoteContent>;
@@ -280,19 +334,20 @@ export type ItemsApi = {
 };
 
 export type SearchApi = {
-  search(query: SearchQuery): Promise<SearchResult[]>;
+  search(query: SearchQuery): Promise<PageResult<SearchResult>>;
   reindex(): Promise<ReindexResult>;
 };
 
 export type DashboardApi = {
   getSummary(): Promise<DashboardSummary>;
+  getStorageBreakdown(): Promise<DashboardStorageBreakdown>;
 };
 
 export type ModelsApi = {
   listModels(): Promise<ModelInfo[]>;
   downloadModel(modelId: ModelId): Promise<ModelDownloadJob>;
-  deleteModel(modelId: string): Promise<void>;
-  setDefaultModel(modelId: string): Promise<ModelInfo>;
+  deleteModel(modelId: ModelId): Promise<void>;
+  setDefaultModel(modelId: ModelId): Promise<ModelInfo>;
 };
 
 export type VoiceNoterApi = {

@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
+## [Unreleased] - 08-06-2026
+
+### Changed
+
+- Refactor the renderer shell into smaller typed helpers so page loading, toast handling, and theme syncing are less repetitive
+- Validate IPC payloads in the main process before dispatching to services, and align the settings/model contracts with the real return types
+
+### Fixed
+
+- Remove dead service helpers and centralize background error logging in the main-process services
+
+## [Unreleased] - 07-06-2026
+
+### Changed
+
+- Lazy-load item, queue, and search lists with paged results so startup does not hydrate the full library at once
+- Move media copying into background import jobs so large imports keep the UI responsive
+- Simplify the setup screen to the app purpose plus `Choose Library` and `Open Last Library`
+
+### Fixed
+
+- Defer dashboard storage calculations until the user is on the dashboard
+- Replace sidebar category and tag derivation from loaded items with fast facet counts from the database
+- Keep the dashboard overview-only and open recent item clicks in All Items instead of showing the detail panel there
+
 ## [Unreleased] - 05-06-2026
 
 ### Added

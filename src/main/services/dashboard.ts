@@ -46,10 +46,9 @@ const STORAGE_ROOTS = {
   indexes: "indexes",
 } as const;
 
-export async function getDashboardSummary(libraryRoot: string, db: VoiceNoterDatabase): Promise<DashboardSummary> {
-  const [counts, storage, trend, latestItems, queueHealth] = await Promise.all([
+export async function getDashboardSummary(db: VoiceNoterDatabase): Promise<DashboardSummary> {
+  const [counts, trend, latestItems, queueHealth] = await Promise.all([
     getDashboardCounts(db),
-    getLibraryStorageBreakdown(libraryRoot),
     getTranscriptionTrend(db),
     getLatestPipelineItems(db),
     getQueueHealth(db),
@@ -57,11 +56,14 @@ export async function getDashboardSummary(libraryRoot: string, db: VoiceNoterDat
 
   return {
     counts,
-    storage,
     trend,
     latestItems,
     queueHealth,
   };
+}
+
+export async function getDashboardStorageBreakdown(libraryRoot: string): Promise<DashboardStorageBreakdown> {
+  return getLibraryStorageBreakdown(libraryRoot);
 }
 
 async function getDashboardCounts(db: VoiceNoterDatabase): Promise<DashboardCounts> {

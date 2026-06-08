@@ -23,14 +23,17 @@ describe("notes and search", () => {
       expect(note.markdown).toContain("### 00:01:24");
       expect(note.markdown).toContain("neural retrieval systems");
 
-      await expect(searchService.search({ text: "neural retrieval" })).resolves.toEqual([
-        expect.objectContaining({
-          itemId,
-          title: "Lecture One",
-          source: "transcript",
-          startSeconds: 84,
-        }),
-      ]);
+      await expect(searchService.search({ text: "neural retrieval" })).resolves.toMatchObject({
+        total: 1,
+        items: [
+          expect.objectContaining({
+            itemId,
+            title: "Lecture One",
+            source: "transcript",
+            startSeconds: 84,
+          }),
+        ],
+      });
     } finally {
       db.close();
     }

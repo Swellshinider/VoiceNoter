@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "vitest";
 import { openVoiceNoterDatabase } from "./database";
-import { getDashboardSummary } from "./dashboard";
+import { getDashboardStorageBreakdown, getDashboardSummary } from "./dashboard";
 import { ImportService } from "./import-service";
 import { LibraryService } from "./library";
 
@@ -73,12 +73,14 @@ describe("getDashboardSummary", () => {
         db.prepare("UPDATE items SET status = 'processing', updated_at = ? WHERE id = ?").run(`${twoDaysAgo}T09:00:00.000Z`, pendingItem.id);
         db.prepare("UPDATE items SET status = 'failed', updated_at = ? WHERE id = ?").run(`${threeDaysAgo}T08:00:00.000Z`, failedItem.id);
 
+        await writeFile(join(libraryRoot, "media", "original", "extra.mp3"), "original", "utf8");
         await writeFile(join(libraryRoot, "media", "extracted", "extra.wav"), "extracted", "utf8");
         await writeFile(join(libraryRoot, "models", "model.bin"), "model", "utf8");
         await writeFile(join(libraryRoot, "indexes", "index.bin"), "index", "utf8");
         await writeFile(join(libraryRoot, "temp", "cache.tmp"), "cache", "utf8");
 
-        const summary = await getDashboardSummary(libraryRoot, db);
+        const summary = await getDashboardSummary(db);
+        const storage = await getDashboardStorageBreakdown(libraryRoot);
 
         expect(summary.counts).toEqual({
           totalItems: 3,
@@ -89,14 +91,14 @@ describe("getDashboardSummary", () => {
           failedItems: 1,
           cancelledItems: 0,
         });
-        expect(summary.storage.totalBytes).toBeGreaterThan(0);
-        expect(summary.storage.originalMediaBytes).toBeGreaterThan(0);
-        expect(summary.storage.extractedAudioBytes).toBeGreaterThan(0);
-        expect(summary.storage.notesBytes).toBeGreaterThan(0);
-        expect(summary.storage.modelsBytes).toBeGreaterThan(0);
-        expect(summary.storage.databaseBytes).toBeGreaterThan(0);
-        expect(summary.storage.indexesBytes).toBeGreaterThan(0);
-        expect(summary.storage.otherBytes).toBeGreaterThan(0);
+        expect(storage.totalBytes).toBeGreaterThan(0);
+        expect(storage.originalMediaBytes).toBeGreaterThan(0);
+        expect(storage.extractedAudioBytes).toBeGreaterThan(0);
+        expect(storage.notesBytes).toBeGreaterThan(0);
+        expect(storage.modelsBytes).toBeGreaterThan(0);
+        expect(storage.databaseBytes).toBeGreaterThan(0);
+        expect(storage.indexesBytes).toBeGreaterThan(0);
+        expect(storage.otherBytes).toBeGreaterThan(0);
         expect(summary.trend).toHaveLength(14);
         expect(summary.trend.find((point) => point.date === dayAgo)?.completedTranscriptions).toBe(1);
         expect(summary.latestItems.map((item) => item.status)).toEqual(["transcribed", "pending", "failed"]);

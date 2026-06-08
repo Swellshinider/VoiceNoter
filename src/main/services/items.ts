@@ -1,7 +1,19 @@
-import type { Category, ItemDetail, ItemSummary, SourceType, Tag } from "../../shared/types";
-import type { VoiceNoterDatabase } from "./database";
 import { randomUUID } from "node:crypto";
 import { createMediaUrl } from "../media-protocol";
+import type {
+  Category,
+  CountedCategory,
+  CountedTag,
+  ItemDetail,
+  ItemFacets,
+  ItemListQuery,
+  ItemMetadataUpdate,
+  ItemSummary,
+  PageResult,
+  SourceType,
+  Tag,
+} from "../../shared/types";
+import type { VoiceNoterDatabase } from "./database";
 
 export type ItemRow = {
   id: string;
@@ -20,6 +32,9 @@ export type ItemRow = {
   updated_at: string;
   imported_at: string;
 };
+
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 200;
 
 export function getItemSummary(db: VoiceNoterDatabase, itemId: string): ItemSummary {
   const row = db
@@ -40,7 +55,73 @@ export function getItemSummary(db: VoiceNoterDatabase, itemId: string): ItemSumm
   return mapItemSummary(db, row);
 }
 
-export function mapItemSummary(db: VoiceNoterDatabase, row: ItemRow): ItemSummary {
+export function listItemSummaries(db: VoiceNoterDatabase, query: ItemListQuery = {}): PageResult<ItemSummary> {
+  const { limit, offset } = normalizePageRequest(query);
+  const { whereClause, params } = buildItemWhereClause(query);
+
+  const totalRow = db
+    .prepare(
+      `
+        SELECT COUNT(*) AS count
+        FROM items
+        ${whereClause}
+      `,
+    )
+    .get(...params) as { count: number };
+
+  const rows = db
+    .prepare(
+      `
+        SELECT items.*, categories.name AS category_name
+        FROM items
+        LEFT JOIN categories ON categories.id = items.category_id
+        ${whereClause}
+        ORDER BY datetime(items.imported_at) DESC, items.rowid DESC
+        LIMIT ? OFFSET ?
+      `,
+    )
+    .all(...params, limit, offset) as ItemRow[];
+
+  const tagsByItemId = getItemTagsByItemIds(db, rows.map((row) => row.id));
+
+  return {
+    items: rows.map((row) => mapItemSummary(db, row, tagsByItemId.get(row.id) ?? [])),
+    total: totalRow.count,
+    limit,
+    offset,
+    nextOffset: offset + rows.length < totalRow.count ? offset + rows.length : null,
+  };
+}
+
+export function getItemFacets(db: VoiceNoterDatabase): ItemFacets {
+  const categories = db
+    .prepare(
+      `
+        SELECT categories.id, categories.name, COUNT(items.id) AS itemCount
+        FROM categories
+        INNER JOIN items ON items.category_id = categories.id
+        GROUP BY categories.id, categories.name
+        ORDER BY categories.name
+      `,
+    )
+    .all() as CountedCategory[];
+
+  const tags = db
+    .prepare(
+      `
+        SELECT tags.id, tags.name, COUNT(item_tags.item_id) AS itemCount
+        FROM tags
+        INNER JOIN item_tags ON item_tags.tag_id = tags.id
+        GROUP BY tags.id, tags.name
+        ORDER BY tags.name
+      `,
+    )
+    .all() as CountedTag[];
+
+  return { categories, tags };
+}
+
+export function mapItemSummary(db: VoiceNoterDatabase, row: ItemRow, tags = getItemTags(db, row.id)): ItemSummary {
   return {
     id: row.id,
     title: row.title,
@@ -49,7 +130,7 @@ export function mapItemSummary(db: VoiceNoterDatabase, row: ItemRow): ItemSummar
     notePath: row.note_path,
     durationSeconds: row.duration_seconds,
     category: row.category_id ? { id: row.category_id, name: row.category_name ?? "" } : null,
-    tags: getItemTags(db, row.id),
+    tags,
     importedAt: row.imported_at,
     updatedAt: row.updated_at,
   };
@@ -78,6 +159,32 @@ export function getItemTags(db: VoiceNoterDatabase, itemId: string): Tag[] {
     .all(itemId) as Tag[];
 }
 
+function getItemTagsByItemIds(db: VoiceNoterDatabase, itemIds: string[]): Map<string, Tag[]> {
+  if (itemIds.length === 0) {
+    return new Map();
+  }
+  const placeholders = itemIds.map(() => "?").join(", ");
+  const rows = db
+    .prepare(
+      `
+        SELECT item_tags.item_id, tags.id, tags.name
+        FROM item_tags
+        INNER JOIN tags ON tags.id = item_tags.tag_id
+        WHERE item_tags.item_id IN (${placeholders})
+        ORDER BY tags.name
+      `,
+    )
+    .all(...itemIds) as Array<{ item_id: string } & Tag>;
+
+  const grouped = new Map<string, Tag[]>();
+  for (const row of rows) {
+    const tags = grouped.get(row.item_id) ?? [];
+    tags.push({ id: row.id, name: row.name });
+    grouped.set(row.item_id, tags);
+  }
+  return grouped;
+}
+
 export function getOrCreateCategory(db: VoiceNoterDatabase, name: string): Category {
   const normalized = name.trim();
   const existing = db.prepare("SELECT id, name FROM categories WHERE name = ?").get(normalized) as Category | undefined;
@@ -98,4 +205,38 @@ export function getOrCreateTag(db: VoiceNoterDatabase, name: string): Tag {
   const id = randomUUID();
   db.prepare("INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)").run(id, normalized, new Date().toISOString());
   return { id, name: normalized };
+}
+
+function buildItemWhereClause(query: ItemListQuery): { whereClause: string; params: unknown[] } {
+  const clauses: string[] = [];
+  const params: unknown[] = [];
+  if (query.view === "inbox") {
+    clauses.push("items.status != 'ready'");
+  }
+  if (query.view === "category" && query.categoryId) {
+    clauses.push("items.category_id = ?");
+    params.push(query.categoryId);
+  }
+  if (query.view === "tag" && query.tagId) {
+    clauses.push("items.id IN (SELECT item_id FROM item_tags WHERE tag_id = ?)");
+    params.push(query.tagId);
+  }
+  return {
+    whereClause: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "",
+    params,
+  };
+}
+
+function normalizePageRequest(query: ItemListQuery): { limit: number; offset: number } {
+  return {
+    limit: clampPageSize(query.limit),
+    offset: Math.max(0, Math.floor(query.offset ?? 0)),
+  };
+}
+
+function clampPageSize(value: number | undefined): number {
+  if (!value || Number.isNaN(value) || value < 1) {
+    return DEFAULT_PAGE_SIZE;
+  }
+  return Math.min(Math.floor(value), MAX_PAGE_SIZE);
 }

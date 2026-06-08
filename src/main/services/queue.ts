@@ -1,6 +1,16 @@
 import { EventEmitter } from "node:events";
-import type { Job, JobStatus, JobType, ProcessingEvent, UserFacingError } from "../../shared/types";
 import { toUserFacingError, userError } from "../../shared/errors";
+import type {
+  Job,
+  JobStatus,
+  JobType,
+  PageResult,
+  ProcessingEvent,
+  QueueListQuery,
+  QueueSummary,
+  QueueUpdate,
+  UserFacingError,
+} from "../../shared/types";
 import type { VoiceNoterDatabase } from "./database";
 
 type JobRow = {
@@ -16,18 +26,70 @@ type JobRow = {
   completed_at: string | null;
 };
 
-type QueueEvents = {
-  jobsChanged: [Job[]];
-  processingEvent: [ProcessingEvent];
-};
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 500;
 
 export class QueueService {
   private readonly events = new EventEmitter();
 
   constructor(private readonly db: VoiceNoterDatabase) {}
 
-  async listJobs(): Promise<Job[]> {
-    return this.getJobs();
+  async listJobs(query: QueueListQuery = {}): Promise<PageResult<Job>> {
+    const { limit, offset } = normalizePageRequest(query);
+    const { whereClause, params } = buildWhereClause(query);
+
+    const totalRow = this.db
+      .prepare(
+        `
+          SELECT COUNT(*) AS count
+          FROM jobs
+          ${whereClause}
+        `,
+      )
+      .get(...params) as { count: number };
+
+    const rows = this.db
+      .prepare(
+        `
+          SELECT *
+          FROM jobs
+          ${whereClause}
+          ORDER BY datetime(created_at) DESC, rowid DESC
+          LIMIT ? OFFSET ?
+        `,
+      )
+      .all(...params, limit, offset) as JobRow[];
+
+    return {
+      items: rows.map(mapJob),
+      total: totalRow.count,
+      limit,
+      offset,
+      nextOffset: offset + rows.length < totalRow.count ? offset + rows.length : null,
+    };
+  }
+
+  async getSummary(): Promise<QueueSummary> {
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            COUNT(*) AS totalJobs,
+            COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pendingJobs,
+            COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), 0) AS runningJobs,
+            COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) AS completedJobs,
+            COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failedJobs,
+            COALESCE(SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END), 0) AS cancelledJobs,
+            MIN(CASE WHEN status = 'pending' THEN created_at END) AS oldestPendingAt
+          FROM jobs
+        `,
+      )
+      .get() as QueueSummary;
+
+    return {
+      ...row,
+      activeJobs: row.pendingJobs + row.runningJobs,
+    };
   }
 
   async retryJob(jobId: string): Promise<Job> {
@@ -54,7 +116,7 @@ export class QueueService {
       this.db.prepare("UPDATE items SET status = 'processing', updated_at = ? WHERE id = ?").run(new Date().toISOString(), job.itemId);
     });
     retry();
-    this.emitJobsChanged();
+    this.emitJobsChanged([jobId]);
     return this.getJob(jobId);
   }
 
@@ -71,7 +133,7 @@ export class QueueService {
       this.cancelDependentJobs(jobId, job.itemId, now);
     });
     cancel();
-    this.emitJobsChanged();
+    this.emitJobsChanged([jobId]);
     return this.getJob(jobId);
   }
 
@@ -79,7 +141,7 @@ export class QueueService {
     this.db
       .prepare("UPDATE jobs SET status = 'running', started_at = ?, completed_at = NULL, error_message = NULL WHERE id = ?")
       .run(new Date().toISOString(), jobId);
-    this.emitJobsChanged();
+    this.emitJobsChanged([jobId]);
     return this.getJob(jobId);
   }
 
@@ -87,7 +149,7 @@ export class QueueService {
     this.db
       .prepare("UPDATE jobs SET status = 'completed', progress = 1, completed_at = ?, error_message = NULL WHERE id = ?")
       .run(new Date().toISOString(), jobId);
-    this.emitJobsChanged();
+    this.emitJobsChanged([jobId]);
     return this.getJob(jobId);
   }
 
@@ -102,7 +164,7 @@ export class QueueService {
         progress: normalized,
       });
     }
-    this.emitJobsChanged();
+    this.emitJobsChanged([jobId]);
     return job;
   }
 
@@ -117,19 +179,19 @@ export class QueueService {
       this.failDependentJobs(jobId, job.itemId, now);
     });
     fail();
-    this.emitJobsChanged();
+    this.emitJobsChanged([jobId]);
     return this.getJob(jobId);
   }
 
   recoverUnfinishedJobs(): Job[] {
     const rows = this.db.prepare("SELECT id FROM jobs WHERE status = 'running'").all() as Array<{ id: string }>;
     this.db.prepare("UPDATE jobs SET status = 'pending', started_at = NULL WHERE status = 'running'").run();
-    this.emitJobsChanged();
+    this.emitJobsChanged(rows.map((row) => row.id));
     return rows.map((row) => this.getJob(row.id));
   }
 
-  onJobsChanged(callback: (jobs: Job[]) => void): () => void {
-    const listener = (jobs: Job[]) => callback(jobs);
+  onJobsChanged(callback: (update: QueueUpdate) => void): () => void {
+    const listener = (update: QueueUpdate) => callback(update);
     this.events.on("jobsChanged", listener);
     return () => this.events.off("jobsChanged", listener);
   }
@@ -140,8 +202,10 @@ export class QueueService {
     return () => this.events.off("processingEvent", listener);
   }
 
-  private emitJobsChanged(): void {
-    this.events.emit("jobsChanged", this.getJobs());
+  private emitJobsChanged(changedJobIds: string[] = []): void {
+    void this.getSummary().then((summary) => {
+      this.events.emit("jobsChanged", { changedJobs: this.getJobsByIds(changedJobIds), summary });
+    });
   }
 
   private resetJob(jobId: string): void {
@@ -213,12 +277,22 @@ export class QueueService {
     return row.rowid;
   }
 
-  private getJobs(): Job[] {
-    return (
-      this.db
-        .prepare("SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC")
-        .all() as JobRow[]
-    ).map(mapJob);
+  private getJobsByIds(jobIds: string[]): Job[] {
+    if (jobIds.length === 0) {
+      return [];
+    }
+    const placeholders = jobIds.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare(
+        `
+          SELECT *
+          FROM jobs
+          WHERE id IN (${placeholders})
+        `,
+      )
+      .all(...jobIds) as JobRow[];
+    const byId = new Map(rows.map((row) => [row.id, mapJob(row)]));
+    return jobIds.map((jobId) => byId.get(jobId)).filter((job): job is Job => Boolean(job));
   }
 
   private getJob(jobId: string): Job {
@@ -242,4 +316,31 @@ function mapJob(row: JobRow): Job {
     startedAt: row.started_at,
     completedAt: row.completed_at,
   };
+}
+
+function buildWhereClause(query: QueueListQuery): { whereClause: string; params: unknown[] } {
+  const clauses: string[] = [];
+  const params: unknown[] = [];
+  if (query.status?.length) {
+    clauses.push(`status IN (${query.status.map(() => "?").join(", ")})`);
+    params.push(...query.status);
+  }
+  return {
+    whereClause: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "",
+    params,
+  };
+}
+
+function normalizePageRequest(query: QueueListQuery): { limit: number; offset: number } {
+  return {
+    limit: clampPageSize(query.limit),
+    offset: Math.max(0, Math.floor(query.offset ?? 0)),
+  };
+}
+
+function clampPageSize(value: number | undefined): number {
+  if (!value || Number.isNaN(value) || value < 1) {
+    return DEFAULT_PAGE_SIZE;
+  }
+  return Math.min(Math.floor(value), MAX_PAGE_SIZE);
 }

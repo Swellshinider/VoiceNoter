@@ -1,16 +1,30 @@
 import { Activity, ArrowRight, AudioLines, Clock3, HardDrive, TriangleAlert, Video } from "lucide-react";
 import type { ReactNode } from "react";
-import type { DashboardItemStatus, DashboardSummary } from "../../../shared/types";
+import type { DashboardItemStatus, DashboardStorageBreakdown, DashboardSummary } from "../../../shared/types";
 import { Badge, Button, Panel, Spinner } from "./ui";
+
+const storageBreakdown = [
+  { key: "originalMediaBytes", label: "Original media", color: "bg-sky-500" },
+  { key: "extractedAudioBytes", label: "Extracted audio", color: "bg-cyan-500" },
+  { key: "notesBytes", label: "Notes", color: "bg-emerald-500" },
+  { key: "modelsBytes", label: "Models", color: "bg-violet-500" },
+  { key: "databaseBytes", label: "Database", color: "bg-amber-500" },
+  { key: "indexesBytes", label: "Indexes", color: "bg-orange-500" },
+  { key: "otherBytes", label: "Other", color: "bg-slate-500" },
+] as const;
 
 export function DashboardView({
   summary,
+  storage,
   isLoading,
+  isLoadingStorage,
   onSelectItem,
   onOpenQueue,
 }: {
   summary: DashboardSummary | null;
+  storage: DashboardStorageBreakdown | null;
   isLoading?: boolean;
+  isLoadingStorage?: boolean;
   onSelectItem: (itemId: string) => void;
   onOpenQueue: () => void;
 }) {
@@ -25,15 +39,6 @@ export function DashboardView({
     );
   }
 
-  const storageBreakdown = [
-    { key: "originalMediaBytes", label: "Original media", color: "bg-sky-500" },
-    { key: "extractedAudioBytes", label: "Extracted audio", color: "bg-cyan-500" },
-    { key: "notesBytes", label: "Notes", color: "bg-emerald-500" },
-    { key: "modelsBytes", label: "Models", color: "bg-violet-500" },
-    { key: "databaseBytes", label: "Database", color: "bg-amber-500" },
-    { key: "indexesBytes", label: "Indexes", color: "bg-orange-500" },
-    { key: "otherBytes", label: "Other", color: "bg-slate-500" },
-  ] as const;
   const maxTrend = Math.max(...summary.trend.map((point) => point.completedTranscriptions), 1);
 
   return (
@@ -66,28 +71,34 @@ export function DashboardView({
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="text-sm font-medium">Storage footprint</div>
-                  <div className="mt-1 text-3xl font-semibold">{formatBytes(summary.storage.totalBytes)}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">Total library size split by source media, derived files, and app data.</div>
+                  <div className="mt-1 text-3xl font-semibold">{storage ? formatBytes(storage.totalBytes) : "—"}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {storage ? "Total library size split by source media, derived files, and app data." : "Loading storage breakdown..."}
+                  </div>
                 </div>
-                <Badge>{summary.storage.modelsBytes > 0 ? "Assets on disk" : "Mostly media"}</Badge>
+                <Badge>{storage ? (storage.modelsBytes > 0 ? "Assets on disk" : "Mostly media") : "Loading"}</Badge>
               </div>
 
               <div className="mt-4 h-3 overflow-hidden rounded-full bg-muted">
-                <div className="flex h-full w-full">
-                  {storageBreakdown
-                    .filter((bucket) => summary.storage[bucket.key] > 0)
-                    .map((bucket) => {
-                      const value = summary.storage[bucket.key];
-                      const width = summary.storage.totalBytes > 0 ? `${(value / summary.storage.totalBytes) * 100}%` : "0%";
-                      return <div key={bucket.key} className={bucket.color} style={{ width }} />;
-                    })}
-                </div>
+                {storage ? (
+                  <div className="flex h-full w-full">
+                    {storageBreakdown
+                      .filter((bucket) => storage[bucket.key] > 0)
+                      .map((bucket) => {
+                        const value = storage[bucket.key];
+                        const width = storage.totalBytes > 0 ? `${(value / storage.totalBytes) * 100}%` : "0%";
+                        return <div key={bucket.key} className={bucket.color} style={{ width }} />;
+                      })}
+                  </div>
+                ) : isLoadingStorage ? (
+                  <div className="h-full w-full bg-muted/50" />
+                ) : null}
               </div>
 
               <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                {storageBreakdown.map((bucket) => (
-                  <StorageRow key={bucket.key} label={bucket.label} value={summary.storage[bucket.key]} total={summary.storage.totalBytes} color={bucket.color} />
-                ))}
+                {storage
+                  ? storageBreakdown.map((bucket) => <StorageRow key={bucket.key} label={bucket.label} value={storage[bucket.key]} total={storage.totalBytes} color={bucket.color} />)
+                  : storageBreakdown.map((bucket) => <StorageRow key={bucket.key} label={bucket.label} value={0} total={0} color={bucket.color} />)}
               </div>
             </Panel>
 

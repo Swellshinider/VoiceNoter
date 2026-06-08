@@ -1,5 +1,7 @@
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, rename, stat, unlink } from "node:fs/promises";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { Job, JobType } from "../../shared/types";
 import type { VoiceNoterDatabase } from "./database";
 import { MediaService } from "./media";
@@ -16,10 +18,15 @@ type PendingJobRow = {
 
 type ProcessingItemRow = {
   id: string;
+  original_path: string;
   library_media_path: string;
   extracted_audio_path: string | null;
   source_type: "audio" | "video";
 };
+
+function logProcessingError(message: string, error: unknown): void {
+  console.error(`[processing] ${message}`, error);
+}
 
 export class ProcessingService {
   private readonly media = new MediaService();
@@ -59,11 +66,11 @@ export class ProcessingService {
       await this.runJob(row);
       return this.queue.completeJob(row.id);
     } catch (error) {
-      console.error(`[processing] Job ${row.id} (${row.type}) failed:`, error);
+      logProcessingError(`Job ${row.id} (${row.type}) failed`, error);
       try {
         return this.queue.failJob(row.id, error);
       } catch (failError) {
-        console.error(`[processing] Failed to mark job ${row.id} as failed:`, failError);
+        logProcessingError(`Failed to mark job ${row.id} as failed`, failError);
         return null;
       }
     }
@@ -72,10 +79,10 @@ export class ProcessingService {
   async processAllPending(): Promise<void> {
     try {
       while (await this.processNextPendingJob()) {
-        // loop until queue is empty
+        /* keep draining until the queue is empty */
       }
     } catch (error) {
-      console.error("[processing] processAllPending loop crashed:", error);
+      logProcessingError("processAllPending loop crashed", error);
     }
   }
 
@@ -89,8 +96,17 @@ export class ProcessingService {
     const item = this.getProcessingItem(job.item_id);
 
     switch (job.type) {
-      case "import_file":
+      case "import_file": {
+        await copyFileWithProgress(item.original_path, item.library_media_path, (progress, message) => {
+          this.queue.updateProgress(job.id, progress, {
+            itemId: item.id,
+            stage: job.type,
+            message,
+          });
+        });
+        this.db.prepare("UPDATE items SET status = 'processing', updated_at = ? WHERE id = ?").run(new Date().toISOString(), item.id);
         return;
+      }
       case "inspect_media": {
         const inspection = await this.media.inspectMedia(item.library_media_path);
         this.db
@@ -114,7 +130,7 @@ export class ProcessingService {
             language = settings.transcriptionLanguage;
           }
         } catch {
-          // settings not readable, use auto
+          // fall back to auto detection when settings cannot be read
         }
         const result = await new TranscriptionService(this.libraryRoot, this.db, this.queue).transcribe(job.id, item.id, inputPath, language);
         this.db
@@ -156,7 +172,7 @@ export class ProcessingService {
   }
 
   private getProcessingItem(itemId: string): ProcessingItemRow {
-    const row = this.db.prepare("SELECT id, library_media_path, extracted_audio_path, source_type FROM items WHERE id = ?").get(itemId) as
+    const row = this.db.prepare("SELECT id, original_path, library_media_path, extracted_audio_path, source_type FROM items WHERE id = ?").get(itemId) as
       | ProcessingItemRow
       | undefined;
     if (!row) {
@@ -164,4 +180,54 @@ export class ProcessingService {
     }
     return row;
   }
+}
+
+async function copyFileWithProgress(
+  sourcePath: string,
+  destinationPath: string,
+  onProgress: (progress: number, message: string) => void,
+): Promise<void> {
+  await mkdir(dirname(destinationPath), { recursive: true });
+  const tempPath = `${destinationPath}.partial`;
+  const sourceStat = await stat(sourcePath);
+  let copiedBytes = 0;
+
+  await new Promise<void>((resolve, reject) => {
+    const input = createReadStream(sourcePath);
+    const output = createWriteStream(tempPath);
+    const cleanup = async (error?: unknown) => {
+      input.destroy();
+      output.destroy();
+      try {
+        await unlink(tempPath);
+      } catch {
+        // ignore cleanup errors for partially copied files
+      }
+      if (error) {
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    };
+
+    input.on("data", (chunk: Buffer) => {
+      copiedBytes += chunk.length;
+      onProgress(Math.min(copiedBytes / sourceStat.size, 1), `Copying ${basename(sourcePath)}`);
+    });
+    input.on("error", (error) => {
+      void cleanup(error);
+    });
+    output.on("error", (error) => {
+      void cleanup(error);
+    });
+    output.on("finish", async () => {
+      try {
+        await rename(tempPath, destinationPath);
+        onProgress(1, `Copied ${basename(sourcePath)}`);
+        resolve();
+      } catch (error) {
+        await cleanup(error);
+      }
+    });
+
+    input.pipe(output);
+  });
 }

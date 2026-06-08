@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import matter from "gray-matter";
-import type { ReindexResult, SearchQuery, SearchResult, TranscriptSegment } from "../../shared/types";
+import type { PageResult, ReindexResult, SearchQuery, SearchResult, TranscriptSegment } from "../../shared/types";
 import type { VoiceNoterDatabase } from "./database";
 import type { ItemRow } from "./items";
 import { getItemTags } from "./items";
@@ -43,13 +43,27 @@ export class SearchService {
     index();
   }
 
-  async search(query: SearchQuery): Promise<SearchResult[]> {
+  async search(query: SearchQuery): Promise<PageResult<SearchResult>> {
     const text = query.text.trim();
     if (!text) {
-      return [];
+      return { items: [], total: 0, limit: query.limit ?? 50, offset: query.offset ?? 0, nextOffset: null };
     }
 
     const ftsQuery = toFtsPhrase(text);
+    const { whereClause, params } = buildSearchWhereClause(query, ftsQuery);
+    const { limit, offset } = normalizePageRequest(query);
+
+    const totalRow = this.db
+      .prepare(
+        `
+          SELECT COUNT(*) AS count
+          FROM search_entries_fts
+          INNER JOIN items ON items.id = search_entries_fts.item_id
+          ${whereClause}
+        `,
+      )
+      .get(...params) as { count: number };
+
     const rows = this.db
       .prepare(
         `
@@ -59,31 +73,43 @@ export class SearchService {
             search_entries_fts.source,
             search_entries_fts.start_seconds,
             items.title AS item_title,
+            items.source_type AS item_source_type,
+            items.status AS item_status,
             snippet(search_entries_fts, -1, '', '', '...', 18) AS snippet
           FROM search_entries_fts
           INNER JOIN items ON items.id = search_entries_fts.item_id
-          WHERE search_entries_fts MATCH ?
+          ${whereClause}
           ORDER BY bm25(search_entries_fts)
-          LIMIT 50
+          LIMIT ? OFFSET ?
         `,
       )
-      .all(ftsQuery) as Array<{
+      .all(...params, limit, offset) as Array<{
       item_id: string;
       note_path: string | null;
       source: SearchResult["source"];
       start_seconds: string | null;
       item_title: string;
+      item_source_type: SearchResult["sourceType"];
+      item_status: SearchResult["status"];
       snippet: string;
     }>;
 
-    return rows.map((row) => ({
-      itemId: row.item_id,
-      notePath: row.note_path ?? "",
-      title: row.item_title,
-      snippet: row.snippet,
-      source: row.source,
-      startSeconds: row.start_seconds ? Number(row.start_seconds) : null,
-    }));
+    return {
+      items: rows.map((row) => ({
+        itemId: row.item_id,
+        notePath: row.note_path ?? "",
+        title: row.item_title,
+        snippet: row.snippet,
+        source: row.source,
+        sourceType: row.item_source_type,
+        status: row.item_status,
+        startSeconds: row.start_seconds ? Number(row.start_seconds) : null,
+      })),
+      total: totalRow.count,
+      limit,
+      offset,
+      nextOffset: offset + rows.length < totalRow.count ? offset + rows.length : null,
+    };
   }
 
   async reindex(): Promise<ReindexResult> {
@@ -160,4 +186,32 @@ function stripTranscriptSection(markdownBody: string): string {
 
 function toFtsPhrase(text: string): string {
   return `"${text.replace(/"/g, '""')}"`;
+}
+
+function buildSearchWhereClause(query: SearchQuery, ftsQuery: string): { whereClause: string; params: unknown[] } {
+  const clauses = ["search_entries_fts MATCH ?"];
+  const params: unknown[] = [ftsQuery];
+  if (query.categoryId) {
+    clauses.push("items.category_id = ?");
+    params.push(query.categoryId);
+  }
+  if (query.tagId) {
+    clauses.push("items.id IN (SELECT item_id FROM item_tags WHERE tag_id = ?)");
+    params.push(query.tagId);
+  }
+  return { whereClause: `WHERE ${clauses.join(" AND ")}`, params };
+}
+
+function normalizePageRequest(query: SearchQuery): { limit: number; offset: number } {
+  return {
+    limit: clampPageSize(query.limit),
+    offset: Math.max(0, Math.floor(query.offset ?? 0)),
+  };
+}
+
+function clampPageSize(value: number | undefined): number {
+  if (!value || Number.isNaN(value) || value < 1) {
+    return 50;
+  }
+  return Math.min(Math.floor(value), 200);
 }

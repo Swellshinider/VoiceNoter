@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DashboardView } from "./DashboardView";
-import { mockDashboardSummary } from "./test-utils";
+import { mockDashboardSummary, mockStorageBreakdown } from "./test-utils";
 
 describe("DashboardView", () => {
   it("renders summary cards and latest items", () => {
-    render(<DashboardView summary={mockDashboardSummary} onSelectItem={vi.fn()} onOpenQueue={vi.fn()} />);
+    render(<DashboardView summary={mockDashboardSummary} storage={mockStorageBreakdown} onSelectItem={vi.fn()} onOpenQueue={vi.fn()} />);
 
     expect(screen.getByText("Library health at a glance")).toBeInTheDocument();
     expect(screen.getByText("Total files")).toBeInTheDocument();
@@ -20,7 +20,7 @@ describe("DashboardView", () => {
     const user = userEvent.setup();
     const onSelectItem = vi.fn();
 
-    render(<DashboardView summary={mockDashboardSummary} onSelectItem={onSelectItem} onOpenQueue={vi.fn()} />);
+    render(<DashboardView summary={mockDashboardSummary} storage={mockStorageBreakdown} onSelectItem={onSelectItem} onOpenQueue={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Queued Interview/i }));
 
