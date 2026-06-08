@@ -3,6 +3,16 @@ import type { ReactNode } from "react";
 import type { DashboardItemStatus, DashboardStorageBreakdown, DashboardSummary } from "../../../shared/types";
 import { Badge, Button, Panel, Spinner } from "./ui";
 
+const storageBreakdown = [
+  { key: "originalMediaBytes", label: "Original media", color: "bg-sky-500" },
+  { key: "extractedAudioBytes", label: "Extracted audio", color: "bg-cyan-500" },
+  { key: "notesBytes", label: "Notes", color: "bg-emerald-500" },
+  { key: "modelsBytes", label: "Models", color: "bg-violet-500" },
+  { key: "databaseBytes", label: "Database", color: "bg-amber-500" },
+  { key: "indexesBytes", label: "Indexes", color: "bg-orange-500" },
+  { key: "otherBytes", label: "Other", color: "bg-slate-500" },
+] as const;
+
 export function DashboardView({
   summary,
   storage,
@@ -29,15 +39,6 @@ export function DashboardView({
     );
   }
 
-  const storageBreakdown = [
-    { key: "originalMediaBytes", label: "Original media", color: "bg-sky-500" },
-    { key: "extractedAudioBytes", label: "Extracted audio", color: "bg-cyan-500" },
-    { key: "notesBytes", label: "Notes", color: "bg-emerald-500" },
-    { key: "modelsBytes", label: "Models", color: "bg-violet-500" },
-    { key: "databaseBytes", label: "Database", color: "bg-amber-500" },
-    { key: "indexesBytes", label: "Indexes", color: "bg-orange-500" },
-    { key: "otherBytes", label: "Other", color: "bg-slate-500" },
-  ] as const;
   const maxTrend = Math.max(...summary.trend.map((point) => point.completedTranscriptions), 1);
 
   return (

@@ -9,7 +9,7 @@ import type {
   Job,
   JobStatus,
   JobType,
-  LibrarySettings,
+  LibrarySettingsWithStats,
   LibraryState,
   ModelInfo,
   PageResult,
@@ -24,67 +24,54 @@ import { QueueView } from "./components/QueueView";
 import { SettingsView } from "./components/SettingsView";
 import { SetupView } from "./components/SetupView";
 import { Sidebar, type FilterState, type ViewKey } from "./components/Sidebar";
-import { Button, Input, Toaster, type ToastEntry } from "./components/ui";
+import { Button, Input, Toaster } from "./components/ui";
+import { useDocumentTheme } from "./hooks/useDocumentTheme";
+import { useToasts } from "./hooks/useToasts";
+import { getSystemTheme, mapSearchResultToItemSummary, mergePageResults, normalizeToastError } from "./lib/app";
+import { createPagedState, type PagedState } from "./lib/pagination";
 
 const PAGE_SIZE = 50;
 const MAX_ITEM_REFRESH = 200;
 const MAX_QUEUE_REFRESH = 500;
 const selectedRefreshJobTypes = new Set<JobType>(["import_file", "inspect_media", "extract_audio", "transcribe", "generate_markdown", "index_note"]);
 
-function getSystemTheme(): "light" | "dark" {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return "dark";
-  }
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
+type AsyncState<T> = {
+  value: T | null;
+  isLoading: boolean;
+};
 
 export function App() {
   const [library, setLibrary] = useState<LibraryState | null>(null);
   const [lastLibraryPath, setLastLibraryPath] = useState<string | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
-  const [settings, setSettings] = useState<LibrarySettings | null>(null);
+  const [settings, setSettings] = useState<LibrarySettingsWithStats | null>(null);
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
-  const [dashboardStorage, setDashboardStorage] = useState<DashboardStorageBreakdown | null>(null);
+  const [dashboardStorage, setDashboardStorage] = useState<AsyncState<DashboardStorageBreakdown>>({ value: null, isLoading: false });
   const [facets, setFacets] = useState<ItemFacets | null>(null);
   const [queueSummary, setQueueSummary] = useState<QueueSummary | null>(null);
-  const [itemsPage, setItemsPage] = useState<PageResult<ItemSummary> | null>(null);
-  const [queuePage, setQueuePage] = useState<PageResult<Job> | null>(null);
-  const [searchPage, setSearchPage] = useState<PageResult<SearchResult> | null>(null);
+  const [itemsState, setItemsState] = useState<PagedState<ItemSummary>>(createPagedState<ItemSummary>());
+  const [queueState, setQueueState] = useState<PagedState<Job>>(createPagedState<Job>());
+  const [searchState, setSearchState] = useState<PagedState<SearchResult>>(createPagedState<SearchResult>());
   const [view, setView] = useState<ViewKey>("dashboard");
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [selectedItem, setSelectedItem] = useState<ItemDetail | null>(null);
+  const [selectedItem, setSelectedItem] = useState<AsyncState<ItemDetail>>({ value: null, isLoading: false });
   const [searchText, setSearchText] = useState("");
   const [jumpToSeconds, setJumpToSeconds] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState("Loading...");
-  const [toasts, setToasts] = useState<ToastEntry[]>([]);
   const [activeFilter, setActiveFilter] = useState<FilterState>(null);
-  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
-  const [isLoadingItems, setIsLoadingItems] = useState(false);
-  const [isLoadingItemsMore, setIsLoadingItemsMore] = useState(false);
-  const [isLoadingQueue, setIsLoadingQueue] = useState(false);
-  const [isLoadingQueueMore, setIsLoadingQueueMore] = useState(false);
-  const [isLoadingSearch, setIsLoadingSearch] = useState(false);
-  const [isLoadingSearchMore, setIsLoadingSearchMore] = useState(false);
-  const [isLoadingDashboardStorage, setIsLoadingDashboardStorage] = useState(false);
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() => getSystemTheme());
+  const { toasts, addToast, removeToast } = useToasts();
   const selectedItemIdRef = useRef<string | null>(null);
   const previousJobStatusesRef = useRef<Map<string, JobStatus>>(new Map());
   const viewRef = useRef<ViewKey>(view);
   const activeFilterRef = useRef<FilterState>(activeFilter);
-  const itemsPageRef = useRef<PageResult<ItemSummary> | null>(itemsPage);
-  const queuePageRef = useRef<PageResult<Job> | null>(queuePage);
-  const searchPageRef = useRef<PageResult<SearchResult> | null>(searchPage);
+  const itemsPageRef = useRef<PageResult<ItemSummary> | null>(itemsState.page);
+  const queuePageRef = useRef<PageResult<Job> | null>(queueState.page);
+  const searchPageRef = useRef<PageResult<SearchResult> | null>(searchState.page);
 
   const themePreference = settings?.theme ?? "dark";
   const resolvedTheme = themePreference === "system" ? systemTheme : themePreference;
-
-  function addToast(entry: Omit<ToastEntry, "id">) {
-    setToasts((prev) => [...prev, { ...entry, id: crypto.randomUUID() }]);
-  }
-
-  function removeToast(id: string) {
-    setToasts((prev) => prev.filter((toast) => toast.id !== id));
-  }
+  useDocumentTheme(resolvedTheme);
 
   const refreshShellData = useCallback(async () => {
     const [nextLibrary, nextLastLibraryPath, nextModels, nextSettings] = await Promise.all([
@@ -101,12 +88,13 @@ export function App() {
 
     if (!nextLibrary) {
       setDashboardSummary(null);
-      setDashboardStorage(null);
+      setDashboardStorage({ value: null, isLoading: false });
       setFacets(null);
       setQueueSummary(null);
-      setItemsPage(null);
-      setQueuePage(null);
-      setSearchPage(null);
+      setItemsState(createPagedState<ItemSummary>());
+      setQueueState(createPagedState<Job>());
+      setSearchState(createPagedState<SearchResult>());
+      setSelectedItem({ value: null, isLoading: false });
       setStatusMessage("Choose a library to begin.");
       return;
     }
@@ -137,14 +125,14 @@ export function App() {
     if (!library) {
       return;
     }
-    setIsLoadingDashboardStorage(true);
+    setDashboardStorage((previous) => ({ ...previous, isLoading: true }));
     try {
       const storage = await window.voiceNoter.dashboard.getStorageBreakdown().catch(() => null);
       startTransition(() => {
-        setDashboardStorage(storage);
+        setDashboardStorage({ value: storage, isLoading: false });
       });
     } finally {
-      setIsLoadingDashboardStorage(false);
+      setDashboardStorage((previous) => ({ ...previous, isLoading: false }));
     }
   }, [library]);
 
@@ -153,11 +141,7 @@ export function App() {
       if (!library) {
         return;
       }
-      if (append) {
-        setIsLoadingItemsMore(true);
-      } else {
-        setIsLoadingItems(true);
-      }
+      setItemsState((previous) => ({ ...previous, isLoading: !append, isLoadingMore: append }));
       try {
         const query =
           activeFilterRef.current?.type === "category"
@@ -167,11 +151,13 @@ export function App() {
               : { view: "all" as const, limit, offset };
         const page = await window.voiceNoter.items.listItems(query);
         startTransition(() => {
-          setItemsPage((prev) => (append && prev ? { ...page, items: [...prev.items, ...page.items] } : page));
+          setItemsState((previous) => ({
+            ...previous,
+            page: mergePageResults(previous.page, page, append),
+          }));
         });
       } finally {
-        setIsLoadingItems(false);
-        setIsLoadingItemsMore(false);
+        setItemsState((previous) => ({ ...previous, isLoading: false, isLoadingMore: false }));
       }
     },
     [library],
@@ -182,23 +168,20 @@ export function App() {
       if (!library) {
         return;
       }
-      if (append) {
-        setIsLoadingQueueMore(true);
-      } else {
-        setIsLoadingQueue(true);
-      }
+      setQueueState((previous) => ({ ...previous, isLoading: !append, isLoadingMore: append }));
       try {
         const page = await window.voiceNoter.queue.listJobs({ limit, offset });
         startTransition(() => {
-          setQueuePage((prev) => (append && prev ? { ...page, items: [...prev.items, ...page.items] } : page));
-          setQueueSummary((prev) => prev ?? null);
+          setQueueState((previous) => ({
+            ...previous,
+            page: mergePageResults(previous.page, page, append),
+          }));
           for (const job of page.items) {
             previousJobStatusesRef.current.set(job.id, job.status);
           }
         });
       } finally {
-        setIsLoadingQueue(false);
-        setIsLoadingQueueMore(false);
+        setQueueState((previous) => ({ ...previous, isLoading: false, isLoadingMore: false }));
       }
     },
     [library],
@@ -211,44 +194,42 @@ export function App() {
       }
       const text = searchText.trim();
       if (!text) {
-        setSearchPage(null);
+        setSearchState(createPagedState<SearchResult>());
         return;
       }
-      if (append) {
-        setIsLoadingSearchMore(true);
-      } else {
-        setIsLoadingSearch(true);
-      }
+      setSearchState((previous) => ({ ...previous, isLoading: !append, isLoadingMore: append }));
       try {
         const page = await window.voiceNoter.search.search({ text, limit, offset });
         startTransition(() => {
-          setSearchPage((prev) => (append && prev ? { ...page, items: [...prev.items, ...page.items] } : page));
+          setSearchState((previous) => ({
+            ...previous,
+            page: mergePageResults(previous.page, page, append),
+          }));
         });
       } finally {
-        setIsLoadingSearch(false);
-        setIsLoadingSearchMore(false);
+        setSearchState((previous) => ({ ...previous, isLoading: false, isLoadingMore: false }));
       }
     },
     [library, searchText],
   );
 
   const refreshSelectedItemById = useCallback(async (itemId: string) => {
-    setIsLoadingDetail(true);
+    setSelectedItem((previous) => ({ ...previous, isLoading: true }));
     try {
       const detail = await window.voiceNoter.items.getItem(itemId);
       if (selectedItemIdRef.current === itemId) {
-        setSelectedItem(detail);
+        setSelectedItem({ value: detail, isLoading: false });
       }
     } finally {
       if (selectedItemIdRef.current === itemId) {
-        setIsLoadingDetail(false);
+        setSelectedItem((previous) => ({ ...previous, isLoading: false }));
       }
     }
   }, []);
 
   const refreshSelectedItem = useCallback(async () => {
     if (!selectedItemIdRef.current) {
-      setSelectedItem(null);
+      setSelectedItem({ value: null, isLoading: false });
       return;
     }
     await refreshSelectedItemById(selectedItemIdRef.current);
@@ -277,16 +258,16 @@ export function App() {
   }, [activeFilter]);
 
   useEffect(() => {
-    itemsPageRef.current = itemsPage;
-  }, [itemsPage]);
+    itemsPageRef.current = itemsState.page;
+  }, [itemsState.page]);
 
   useEffect(() => {
-    queuePageRef.current = queuePage;
-  }, [queuePage]);
+    queuePageRef.current = queueState.page;
+  }, [queueState.page]);
 
   useEffect(() => {
-    searchPageRef.current = searchPage;
-  }, [searchPage]);
+    searchPageRef.current = searchState.page;
+  }, [searchState.page]);
 
   useEffect(() => {
     if (themePreference !== "system" || typeof window.matchMedia !== "function") {
@@ -300,13 +281,6 @@ export function App() {
   }, [themePreference]);
 
   useEffect(() => {
-    const root = document.documentElement;
-    root.classList.toggle("dark", resolvedTheme === "dark");
-    root.classList.toggle("light", resolvedTheme === "light");
-    root.style.colorScheme = resolvedTheme;
-  }, [resolvedTheme]);
-
-  useEffect(() => {
     void refreshShellData().catch(() => setStatusMessage("Choose a library to begin."));
   }, [refreshShellData]);
 
@@ -314,7 +288,7 @@ export function App() {
     if (!library) {
       return;
     }
-    if (view === "dashboard" && dashboardSummary && !dashboardStorage) {
+    if (view === "dashboard" && dashboardSummary && !dashboardStorage.value && !dashboardStorage.isLoading) {
       void loadDashboardStorage();
     }
     if (view === "all") {
@@ -323,7 +297,7 @@ export function App() {
     if (view === "queue") {
       void loadQueuePage({ offset: 0, limit: PAGE_SIZE });
     }
-  }, [dashboardStorage, dashboardSummary, library, loadDashboardStorage, loadItemsPage, loadQueuePage, view]);
+  }, [dashboardStorage.isLoading, dashboardStorage.value, dashboardSummary, library, loadDashboardStorage, loadItemsPage, loadQueuePage, view]);
 
   useEffect(() => {
     if (!library) {
@@ -367,30 +341,36 @@ export function App() {
 
   useEffect(() => {
     if (!selectedItemId) {
-      setSelectedItem(null);
+      setSelectedItem({ value: null, isLoading: false });
       return;
     }
     void refreshSelectedItemById(selectedItemId);
   }, [refreshSelectedItemById, selectedItemId]);
 
+  function resetWorkspaceViewState() {
+    setView("dashboard");
+    setActiveFilter(null);
+    setSelectedItemId(null);
+    setSelectedItem({ value: null, isLoading: false });
+    setJumpToSeconds(null);
+    setSearchText("");
+    setSearchState(createPagedState<SearchResult>());
+    setItemsState(createPagedState<ItemSummary>());
+    setQueueState(createPagedState<Job>());
+    setDashboardSummary(null);
+    setQueueSummary(null);
+    setFacets(null);
+    setDashboardStorage({ value: null, isLoading: false });
+  }
+
   async function chooseLibrary() {
     setStatusMessage("Choosing library");
     try {
       await window.voiceNoter.library.chooseLibrary();
-      setView("dashboard");
-      setActiveFilter(null);
-      setSelectedItemId(null);
-      setSelectedItem(null);
-      setJumpToSeconds(null);
-      setSearchText("");
-      setSearchPage(null);
-      setItemsPage(null);
-      setQueuePage(null);
-      setDashboardStorage(null);
+      resetWorkspaceViewState();
       await refreshShellData();
     } catch (error) {
-      const err = error as { title?: string; message?: string; technicalDetails?: string } | undefined;
-      addToast({ variant: "error", title: err?.title ?? "Library setup failed", message: err?.message ?? "VoiceNoter could not set up the library.", technicalDetails: err?.technicalDetails });
+      addToast(normalizeToastError(error, "Library setup failed", "VoiceNoter could not set up the library."));
     }
   }
 
@@ -398,20 +378,10 @@ export function App() {
     setStatusMessage("Opening last library");
     try {
       await window.voiceNoter.library.openLastLibrary();
-      setView("dashboard");
-      setActiveFilter(null);
-      setSelectedItemId(null);
-      setSelectedItem(null);
-      setJumpToSeconds(null);
-      setSearchText("");
-      setSearchPage(null);
-      setItemsPage(null);
-      setQueuePage(null);
-      setDashboardStorage(null);
+      resetWorkspaceViewState();
       await refreshShellData();
     } catch (error) {
-      const err = error as { title?: string; message?: string; technicalDetails?: string } | undefined;
-      addToast({ variant: "error", title: err?.title ?? "Library setup failed", message: err?.message ?? "VoiceNoter could not open the last library.", technicalDetails: err?.technicalDetails });
+      addToast(normalizeToastError(error, "Library setup failed", "VoiceNoter could not open the last library."));
     }
   }
 
@@ -440,26 +410,24 @@ export function App() {
         }
       }
     } catch (error) {
-      const err = error as { title?: string; message?: string; technicalDetails?: string } | undefined;
-      addToast({ variant: "error", title: err?.title ?? "Import failed", message: err?.message ?? "VoiceNoter could not complete the import.", technicalDetails: err?.technicalDetails });
+      addToast(normalizeToastError(error, "Import failed", "VoiceNoter could not complete the import."));
     }
   }
 
   async function runSearch() {
     const text = searchText.trim();
     if (!text) {
-      setSearchPage(null);
+      setSearchState(createPagedState<SearchResult>());
       setView("search");
       return;
     }
     try {
       const page = await window.voiceNoter.search.search({ text, limit: PAGE_SIZE, offset: 0 });
-      setSearchPage(page);
+      setSearchState({ page, isLoading: false, isLoadingMore: false });
       setView("search");
       setStatusMessage(`${page.total} search results`);
     } catch (error) {
-      const err = error as { title?: string; message?: string; technicalDetails?: string } | undefined;
-      addToast({ variant: "error", title: err?.title ?? "Search failed", message: err?.message ?? "VoiceNoter could not complete the search.", technicalDetails: err?.technicalDetails });
+      addToast(normalizeToastError(error, "Search failed", "VoiceNoter could not complete the search."));
     }
   }
 
@@ -481,48 +449,34 @@ export function App() {
   }
 
   async function handleLoadMoreItems() {
-    if (!itemsPage || itemsPage.nextOffset === null) {
+    if (!itemsState.page || itemsState.page.nextOffset === null) {
       return;
     }
-    await loadItemsPage({ offset: itemsPage.nextOffset, limit: PAGE_SIZE, append: true });
+    await loadItemsPage({ offset: itemsState.page.nextOffset, limit: PAGE_SIZE, append: true });
   }
 
   async function handleLoadMoreQueue() {
-    if (!queuePage || queuePage.nextOffset === null) {
+    if (!queueState.page || queueState.page.nextOffset === null) {
       return;
     }
-    await loadQueuePage({ offset: queuePage.nextOffset, limit: PAGE_SIZE, append: true });
+    await loadQueuePage({ offset: queueState.page.nextOffset, limit: PAGE_SIZE, append: true });
   }
 
   async function handleLoadMoreSearch() {
-    if (!searchPage || searchPage.nextOffset === null) {
+    if (!searchState.page || searchState.page.nextOffset === null) {
       return;
     }
-    await loadSearchPage({ offset: searchPage.nextOffset, limit: PAGE_SIZE, append: true });
+    await loadSearchPage({ offset: searchState.page.nextOffset, limit: PAGE_SIZE, append: true });
   }
 
   if (!library) {
     return <SetupView lastLibraryPath={lastLibraryPath} onChooseLibrary={() => void chooseLibrary()} onOpenLastLibrary={lastLibraryPath ? () => void openLastLibrary() : undefined} />;
   }
 
-  const currentSearchResults = searchPage?.items ?? [];
-  const searchItems: ItemSummary[] =
-    view === "search"
-      ? currentSearchResults.map((result) => ({
-          id: result.itemId,
-          title: result.title,
-          sourceType: result.sourceType,
-          status: result.status,
-          notePath: result.notePath,
-          durationSeconds: null,
-          category: null,
-          tags: [],
-          importedAt: "",
-          updatedAt: "",
-        }))
-      : [];
-  const currentItemList = view === "all" ? itemsPage?.items ?? [] : [];
-  const currentQueueJobs = view === "queue" ? queuePage?.items ?? [] : [];
+  const currentSearchResults = searchState.page?.items ?? [];
+  const searchItems: ItemSummary[] = view === "search" ? currentSearchResults.map(mapSearchResultToItemSummary) : [];
+  const currentItemList = view === "all" ? itemsState.page?.items ?? [] : [];
+  const currentQueueJobs = view === "queue" ? queueState.page?.items ?? [] : [];
 
   return (
     <div
@@ -564,19 +518,44 @@ export function App() {
           <QueueView
             jobs={currentQueueJobs}
             summary={queueSummary}
-            isLoading={isLoadingQueue}
-            isLoadingMore={isLoadingQueueMore}
-            hasMore={queuePage?.nextOffset !== null}
+            isLoading={queueState.isLoading}
+            isLoadingMore={queueState.isLoadingMore}
+            hasMore={queueState.page?.nextOffset !== null}
             onLoadMore={() => void handleLoadMoreQueue()}
-            onRetry={(jobId) => void window.voiceNoter.queue.retryJob(jobId).then(refreshShellData).catch((error: { title?: string; message?: string; technicalDetails?: string }) => addToast({ variant: "error", title: error?.title ?? "Retry failed", message: error?.message ?? "Could not retry job.", technicalDetails: error?.technicalDetails }))}
-            onCancel={(jobId) => void window.voiceNoter.queue.cancelJob(jobId).then(refreshShellData).catch((error: { title?: string; message?: string; technicalDetails?: string }) => addToast({ variant: "error", title: error?.title ?? "Cancel failed", message: error?.message ?? "Could not cancel job.", technicalDetails: error?.technicalDetails }))}
+            onRetry={(jobId) =>
+              void window.voiceNoter.queue
+                .retryJob(jobId)
+                .then(refreshShellData)
+                .catch((error: unknown) => addToast(normalizeToastError(error, "Retry failed", "Could not retry job.")))
+            }
+            onCancel={(jobId) =>
+              void window.voiceNoter.queue
+                .cancelJob(jobId)
+                .then(refreshShellData)
+                .catch((error: unknown) => addToast(normalizeToastError(error, "Cancel failed", "Could not cancel job.")))
+            }
           />
         ) : view === "models" ? (
           <ModelManager
             models={models}
-            onDownload={(modelId) => void window.voiceNoter.models.downloadModel(modelId).then(refreshShellData).catch((error: { title?: string; message?: string; technicalDetails?: string }) => addToast({ variant: "error", title: error?.title ?? "Download failed", message: error?.message ?? "Could not download model.", technicalDetails: error?.technicalDetails }))}
-            onDelete={(modelId) => void window.voiceNoter.models.deleteModel(modelId).then(refreshShellData).catch((error: { title?: string; message?: string; technicalDetails?: string }) => addToast({ variant: "error", title: error?.title ?? "Delete failed", message: error?.message ?? "Could not delete model.", technicalDetails: error?.technicalDetails }))}
-            onSelect={(modelId) => void window.voiceNoter.models.setDefaultModel(modelId).then(refreshShellData).catch((error: { title?: string; message?: string; technicalDetails?: string }) => addToast({ variant: "error", title: error?.title ?? "Selection failed", message: error?.message ?? "Could not set default model.", technicalDetails: error?.technicalDetails }))}
+            onDownload={(modelId) =>
+              void window.voiceNoter.models
+                .downloadModel(modelId)
+                .then(refreshShellData)
+                .catch((error: unknown) => addToast(normalizeToastError(error, "Download failed", "Could not download model.")))
+            }
+            onDelete={(modelId) =>
+              void window.voiceNoter.models
+                .deleteModel(modelId)
+                .then(refreshShellData)
+                .catch((error: unknown) => addToast(normalizeToastError(error, "Delete failed", "Could not delete model.")))
+            }
+            onSelect={(modelId) =>
+              void window.voiceNoter.models
+                .setDefaultModel(modelId)
+                .then(refreshShellData)
+                .catch((error: unknown) => addToast(normalizeToastError(error, "Selection failed", "Could not set default model.")))
+            }
           />
         ) : view === "settings" ? (
           <SettingsView
@@ -584,8 +563,18 @@ export function App() {
             settings={settings}
             models={models}
             onOpenFolder={() => void window.voiceNoter.library.openLibraryFolder()}
-            onRescan={() => void window.voiceNoter.library.rescanLibrary().then(refreshShellData).catch((error: { title?: string; message?: string; technicalDetails?: string }) => addToast({ variant: "error", title: error?.title ?? "Rescan failed", message: error?.message ?? "Could not rescan library.", technicalDetails: error?.technicalDetails }))}
-            onReindex={() => void window.voiceNoter.search.reindex().then(refreshShellData).catch((error: { title?: string; message?: string; technicalDetails?: string }) => addToast({ variant: "error", title: error?.title ?? "Reindex failed", message: error?.message ?? "Could not reindex search.", technicalDetails: error?.technicalDetails }))}
+            onRescan={() =>
+              void window.voiceNoter.library
+                .rescanLibrary()
+                .then(refreshShellData)
+                .catch((error: unknown) => addToast(normalizeToastError(error, "Rescan failed", "Could not rescan library.")))
+            }
+            onReindex={() =>
+              void window.voiceNoter.search
+                .reindex()
+                .then(refreshShellData)
+                .catch((error: unknown) => addToast(normalizeToastError(error, "Reindex failed", "Could not reindex search.")))
+            }
             onUpdateSettings={(patch) =>
               void window.voiceNoter.library
                 .updateSettings(patch)
@@ -593,17 +582,16 @@ export function App() {
                   setSettings(nextSettings);
                 })
                 .catch((error) => {
-                  const err = error as { title?: string; message?: string; technicalDetails?: string } | undefined;
-                  addToast({ variant: "error", title: err?.title ?? "Settings update failed", message: err?.message ?? "Could not save settings.", technicalDetails: err?.technicalDetails });
+                  addToast(normalizeToastError(error, "Settings update failed", "Could not save settings."));
                 })
             }
           />
         ) : view === "dashboard" ? (
           <DashboardView
             summary={dashboardSummary}
-            storage={dashboardStorage}
+            storage={dashboardStorage.value}
             isLoading={!dashboardSummary}
-            isLoadingStorage={isLoadingDashboardStorage}
+            isLoadingStorage={dashboardStorage.isLoading}
             onSelectItem={openDashboardItem}
             onOpenQueue={() => setView("queue")}
           />
@@ -614,13 +602,13 @@ export function App() {
               selectedItemId={selectedItemId}
               searchResults={currentSearchResults}
               activeFilterLabel={activeFilter?.name}
-              isLoading={view === "search" ? isLoadingSearch : isLoadingItems}
-              isLoadingMore={view === "search" ? isLoadingSearchMore : isLoadingItemsMore}
-              hasMore={view === "search" ? searchPage?.nextOffset !== null : itemsPage?.nextOffset !== null}
+              isLoading={view === "search" ? searchState.isLoading : itemsState.isLoading}
+              isLoadingMore={view === "search" ? searchState.isLoadingMore : itemsState.isLoadingMore}
+              hasMore={view === "search" ? searchState.page?.nextOffset !== null : itemsState.page?.nextOffset !== null}
               onLoadMore={() => void (view === "search" ? handleLoadMoreSearch() : handleLoadMoreItems())}
               onSelectItem={selectItem}
             />
-            <ItemDetailView item={selectedItem} jumpToSeconds={jumpToSeconds} isLoading={isLoadingDetail} onReload={() => void reloadSelectedItemAndVisibleList()} />
+            <ItemDetailView item={selectedItem.value} jumpToSeconds={jumpToSeconds} isLoading={selectedItem.isLoading} onReload={() => void reloadSelectedItemAndVisibleList()} />
           </div>
         )}
         <footer className="h-7 shrink-0 border-t border-border bg-card px-3 py-1 text-xs text-muted-foreground">{statusMessage}</footer>

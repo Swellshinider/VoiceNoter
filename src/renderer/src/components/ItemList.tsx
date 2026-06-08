@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { ItemSummary, SearchResult } from "../../../shared/types";
 import { Badge, Button, Spinner } from "./ui";
 
@@ -22,7 +23,7 @@ export function ItemList({
   onLoadMore?: () => void;
   onSelectItem: (itemId: string, startSeconds?: number | null) => void;
 }) {
-  const searchByItem = new Map(searchResults.map((result) => [result.itemId, result]));
+  const searchByItem = useMemo(() => new Map(searchResults.map((result) => [result.itemId, result])), [searchResults]);
   return (
     <section className="flex h-full w-80 shrink-0 flex-col border-r border-border bg-background">
       <div className="sticky top-0 z-10 border-b border-border bg-background p-3 text-sm font-medium">

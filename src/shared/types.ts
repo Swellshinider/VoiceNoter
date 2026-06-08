@@ -293,6 +293,11 @@ export type LibrarySettings = {
   installedModelCount?: number;
 };
 
+export type LibrarySettingsWithStats = LibrarySettings & {
+  modelStorageBytes: number;
+  installedModelCount: number;
+};
+
 export type LibraryApi = {
   getCurrentLibrary(): Promise<LibraryState | null>;
   getLastLibrary(): Promise<string | null>;
@@ -301,8 +306,8 @@ export type LibraryApi = {
   validateLibrary(path: string): Promise<LibraryValidationResult>;
   openLibraryFolder(): Promise<void>;
   rescanLibrary(): Promise<RescanResult>;
-  getSettings(): Promise<LibrarySettings>;
-  updateSettings(patch: Partial<Pick<LibrarySettings, "transcriptionLanguage" | "theme">>): Promise<LibrarySettings>;
+  getSettings(): Promise<LibrarySettingsWithStats>;
+  updateSettings(patch: Partial<Pick<LibrarySettings, "transcriptionLanguage" | "theme">>): Promise<LibrarySettingsWithStats>;
 };
 
 export type ImportApi = {
@@ -341,8 +346,8 @@ export type DashboardApi = {
 export type ModelsApi = {
   listModels(): Promise<ModelInfo[]>;
   downloadModel(modelId: ModelId): Promise<ModelDownloadJob>;
-  deleteModel(modelId: string): Promise<void>;
-  setDefaultModel(modelId: string): Promise<ModelInfo>;
+  deleteModel(modelId: ModelId): Promise<void>;
+  setDefaultModel(modelId: ModelId): Promise<ModelInfo>;
 };
 
 export type VoiceNoterApi = {

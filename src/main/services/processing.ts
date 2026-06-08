@@ -24,6 +24,10 @@ type ProcessingItemRow = {
   source_type: "audio" | "video";
 };
 
+function logProcessingError(message: string, error: unknown): void {
+  console.error(`[processing] ${message}`, error);
+}
+
 export class ProcessingService {
   private readonly media = new MediaService();
 
@@ -62,11 +66,11 @@ export class ProcessingService {
       await this.runJob(row);
       return this.queue.completeJob(row.id);
     } catch (error) {
-      console.error(`[processing] Job ${row.id} (${row.type}) failed:`, error);
+      logProcessingError(`Job ${row.id} (${row.type}) failed`, error);
       try {
         return this.queue.failJob(row.id, error);
       } catch (failError) {
-        console.error(`[processing] Failed to mark job ${row.id} as failed:`, failError);
+        logProcessingError(`Failed to mark job ${row.id} as failed`, failError);
         return null;
       }
     }
@@ -75,10 +79,10 @@ export class ProcessingService {
   async processAllPending(): Promise<void> {
     try {
       while (await this.processNextPendingJob()) {
-        // loop until queue is empty
+        /* keep draining until the queue is empty */
       }
     } catch (error) {
-      console.error("[processing] processAllPending loop crashed:", error);
+      logProcessingError("processAllPending loop crashed", error);
     }
   }
 
@@ -126,7 +130,7 @@ export class ProcessingService {
             language = settings.transcriptionLanguage;
           }
         } catch {
-          // settings not readable, use auto
+          // fall back to auto detection when settings cannot be read
         }
         const result = await new TranscriptionService(this.libraryRoot, this.db, this.queue).transcribe(job.id, item.id, inputPath, language);
         this.db

@@ -1,5 +1,5 @@
 import { FolderOpen, RefreshCw, Search } from "lucide-react";
-import type { LibrarySettings, LibraryState, ModelInfo } from "../../../shared/types";
+import type { LibrarySettings, LibrarySettingsWithStats, LibraryState, ModelInfo } from "../../../shared/types";
 import { Button, Panel, Select } from "./ui";
 
 const WHISPER_LANGUAGES = [
@@ -35,7 +35,7 @@ export function SettingsView({
   onUpdateSettings,
 }: {
   library: LibraryState | null;
-  settings: LibrarySettings | null;
+  settings: LibrarySettingsWithStats | null;
   models: ModelInfo[];
   onOpenFolder: () => void;
   onRescan: () => void;

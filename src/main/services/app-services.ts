@@ -1,6 +1,6 @@
 import { app, dialog, shell } from "electron";
 import { EventEmitter } from "node:events";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   ImportCandidate,
@@ -12,6 +12,7 @@ import type {
   ItemSummary,
   Job,
   LibrarySettings,
+  LibrarySettingsWithStats,
   LibraryState,
   LibraryValidationResult,
   ModelDownloadJob,
@@ -42,6 +43,10 @@ import { QueueService } from "./queue";
 import { RecentLibraryService } from "./recent-library";
 import { SearchService } from "./search";
 import { getDashboardStorageBreakdown, getDashboardSummary } from "./dashboard";
+
+function logBackgroundError(message: string, error: unknown): void {
+  console.error(`[app-services] ${message}`, error);
+}
 
 export class AppServices {
   private readonly libraryService = new LibraryService();
@@ -122,12 +127,12 @@ export class AppServices {
       this.queue.onProcessingEvent((event) => this.events.emit("processingEvent", event)),
     ];
     void this.processing.processAllPending().catch((error) => {
-      console.error("[app-services] Failed to resume pending jobs:", error);
+      logBackgroundError("Failed to resume pending jobs", error);
     });
     try {
       await this.recentLibraryService.setLastLibraryPath(path);
     } catch (error) {
-      console.error("[app-services] Failed to save last library path:", error);
+      logBackgroundError("Failed to save last library path", error);
     }
     return state;
   }
@@ -175,7 +180,7 @@ export class AppServices {
     return { scannedNotes, updatedNotes, errors: [...errors, ...reindexResult.errors] };
   }
 
-  async getSettings(): Promise<LibrarySettings & { modelStorageBytes: number; installedModelCount: number }> {
+  async getSettings(): Promise<LibrarySettingsWithStats> {
     if (!this.libraryPath || !this.db) {
       return {
         libraryPath: "",
@@ -204,7 +209,7 @@ export class AppServices {
 
   async updateSettings(
     patch: Partial<Pick<LibrarySettings, "transcriptionLanguage" | "theme">>,
-  ): Promise<LibrarySettings & { modelStorageBytes: number; installedModelCount: number }> {
+  ): Promise<LibrarySettingsWithStats> {
     const context = this.requireContext();
     await this.libraryService.writeSettings(context.libraryPath, patch);
     return this.getSettings();
@@ -226,7 +231,7 @@ export class AppServices {
     const context = this.requireContext();
     const result = await new ImportService(context.libraryPath, context.db).importFiles(paths);
     void context.processing.processAllPending().catch((error) => {
-      console.error("[app-services] Failed to process pending jobs after import:", error);
+      logBackgroundError("Failed to process pending jobs after import", error);
     });
     return result;
   }
@@ -256,7 +261,7 @@ export class AppServices {
     const context = this.requireContext();
     const job = await context.queue.retryJob(jobId);
     void context.processing.processAllPending().catch((error) => {
-      console.error("[app-services] Failed to process pending jobs after retry:", error);
+      logBackgroundError("Failed to process pending jobs after retry", error);
     });
     return job;
   }
@@ -409,11 +414,6 @@ export class AppServices {
   async setDefaultModel(modelId: string): Promise<ModelInfo> {
     const context = this.requireContext();
     return new ModelService(context.libraryPath, context.db, context.queue).setDefaultModel(modelId);
-  }
-
-  async listMarkdownFiles(): Promise<string[]> {
-    const context = this.requireContext();
-    return readdir(join(context.libraryPath, "notes"));
   }
 
   private requireContext(): {
