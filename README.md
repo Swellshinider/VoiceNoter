@@ -49,59 +49,89 @@ If cloud AI features are added later, they should be explicit, user-configured, 
 
 ### Prerequisites
 
-- Node.js compatible with the project dependencies
+- Node.js 26.x
 - `pnpm`
 - Bash
-- Build tools for native Node modules
 - Git
 
-On Linux, native module and whisper.cpp builds may require common compiler tooling such as `make`, `gcc`/`g++`, Python, and CMake.
+On Linux, install the native build tools VoiceNoter needs before the first run:
 
-### Install Dependencies
+- `python3`
+- `cmake`
+- `make`
+- `gcc`
+- `g++`
+
+### Fresh Clone
+
+1. Install Node.js 26.x and `pnpm`.
+2. Install the Linux build tools listed above.
+3. Run the full bootstrap:
 
 ```bash
-pnpm install
+pnpm bootstrap
 ```
 
-### Prepare whisper.cpp
+`pnpm bootstrap` installs Node dependencies, builds the pinned `vendor/whisper.cpp` checkout, and rebuilds `better-sqlite3` for Electron.
 
-VoiceNoter uses a pinned whisper.cpp checkout for local transcription.
-
-```bash
-pnpm prepare:whisper
-```
-
-### Run The Desktop App
+4. Launch the app:
 
 ```bash
 pnpm dev
 ```
 
-### Test
+### First Run Inside The App
 
-```bash
-pnpm test
-```
+1. Click `Choose Library` or `Open Last Library`.
+2. Open `Model Manager` from the sidebar.
+3. Download the `Base` model.
+4. Set the `Base` model as the default.
+5. Import audio or video files and start processing.
 
-The test command rebuilds `better-sqlite3` for the host Node runtime before running Vitest. If you run the app after tests, run:
+Without a downloaded default model, transcription will fail with `No transcription model selected`.
 
-```bash
-pnpm rebuild:electron
-```
+### Daily Workflow
 
-### Build
+- Start the desktop app:
 
-```bash
-pnpm build
-```
+  ```bash
+  pnpm dev
+  ```
 
-### Package
+- Run the test suite:
 
-```bash
-pnpm package
-```
+  ```bash
+  pnpm test
+  ```
 
-This creates a Linux unpacked package directory. Additional end-user installation and distribution methods will be documented later.
+  The test command rebuilds `better-sqlite3` for the host Node runtime before running Vitest. If you run the app after tests, run:
+
+  ```bash
+  pnpm rebuild:electron
+  ```
+
+- Build the app bundles:
+
+  ```bash
+  pnpm build
+  ```
+
+- Package a Linux app directory:
+
+  ```bash
+  pnpm package
+  ```
+
+### Troubleshooting
+
+- `Error: Electron binary not found`
+  Run `pnpm install` again. If you just cloned the repo, prefer `pnpm bootstrap`.
+- `NODE_MODULE_VERSION` mismatch or `better-sqlite3` fails to load
+  Run `pnpm rebuild:node` for Node-based tests or `pnpm rebuild:electron` before `pnpm dev`.
+- `VoiceNoter could not find the local whisper.cpp executable`
+  Run `pnpm prepare:whisper` or rerun `pnpm bootstrap`.
+- `No transcription model selected`
+  Open `Model Manager`, download a model, and set it as the default before transcribing.
 
 ## Project Structure
 
@@ -119,6 +149,7 @@ scripts               Build helper scripts
 ## Useful Scripts
 
 ```bash
+pnpm bootstrap        Bootstrap a fresh clone for development
 pnpm dev              Rebuild native modules for Electron and launch the app
 pnpm test             Rebuild native modules for Node and run Vitest
 pnpm build            Type-check and build main, preload, and renderer bundles

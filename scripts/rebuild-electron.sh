@@ -6,12 +6,14 @@ MODULE_DIR_INPUT="${VOICENOTER_BETTER_SQLITE3_DIR:-node_modules/better-sqlite3}"
 MODULE_DIR="$(cd "$MODULE_DIR_INPUT" && pwd -P)"
 STAMP_FILE="$MODULE_DIR/.electron-rebuild-stamp"
 
+node scripts/ensure-electron-install.js >/dev/null
+
 # Verify Electron binary exists before trying to use it
 if [[ -n "${VOICENOTER_ELECTRON_PATH:-}" ]]; then
   ELECTRON_PATH="$VOICENOTER_ELECTRON_PATH"
 else
   ELECTRON_PATH=$(node -e "console.log(require('electron'))" 2>/dev/null) || {
-    echo "Error: Electron binary not found. Run 'pnpm install' again or download manually." >&2
+    echo "Error: Electron binary not found. Run 'pnpm install' again or rerun 'pnpm bootstrap'." >&2
     exit 1
   }
 fi

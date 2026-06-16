@@ -5,6 +5,7 @@
   "license": "MIT",
   "main": "out/main/index.js",
   "scripts": {
+    "bootstrap": "bash scripts/bootstrap-dev.sh",
     "dev": "pnpm rebuild:electron && electron-vite dev",
     "build": "tsc --noEmit && electron-vite build",
     "preview": "pnpm rebuild:electron && electron-vite preview",
