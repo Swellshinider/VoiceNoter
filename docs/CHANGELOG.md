@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
+## [Unreleased] - 16-06-2026
+
+### Changed
+
+- Add a `pnpm bootstrap` flow so new developers can install dependencies, build whisper.cpp, and prepare Electron in one step
+- Rewrite the README development section as a first-run guide with in-app model setup and troubleshooting steps
+
 ## [Unreleased] - 08-06-2026
 
 ### Changed
