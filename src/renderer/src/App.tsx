@@ -63,6 +63,10 @@ type BulkTagDialogState = {
   tagNames: string[];
 };
 
+type DeleteTagDialogState = {
+  tag: CountedTag;
+};
+
 export function App() {
   const [library, setLibrary] = useState<LibraryState | null>(null);
   const [lastLibraryPath, setLastLibraryPath] = useState<string | null>(null);
@@ -89,6 +93,7 @@ export function App() {
   const [selectedBulkItemIds, setSelectedBulkItemIds] = useState<string[]>([]);
   const [importTaggingState, setImportTaggingState] = useState<ImportTaggingState | null>(null);
   const [bulkTagDialog, setBulkTagDialog] = useState<BulkTagDialogState | null>(null);
+  const [deleteTagDialog, setDeleteTagDialog] = useState<DeleteTagDialogState | null>(null);
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() => getSystemTheme());
   const [hasUnsavedTranscriptChanges, setHasUnsavedTranscriptChanges] = useState(false);
   const { toasts, addToast, removeToast } = useToasts();
@@ -432,6 +437,7 @@ export function App() {
     setSelectedBulkItemIds([]);
     setImportTaggingState(null);
     setBulkTagDialog(null);
+    setDeleteTagDialog(null);
   }
 
   function confirmFocusExit(): boolean {
@@ -662,6 +668,14 @@ export function App() {
     }
   }
 
+  function requestDeleteTag(tag: CountedTag) {
+    if (tag.itemCount > 0) {
+      setDeleteTagDialog({ tag });
+      return;
+    }
+    void deleteTag(tag.id);
+  }
+
   async function saveBulkTagDialog() {
     if (!bulkTagDialog || bulkTagDialog.tagNames.length === 0) {
       setBulkTagDialog(null);
@@ -868,7 +882,7 @@ export function App() {
             selectedTagIds={selectedTagIds}
             onCreateTag={(name) => void createTag(name)}
             onRenameTag={(tagId, name) => void renameTag(tagId, name)}
-            onDeleteTag={(tagId) => void deleteTag(tagId)}
+            onDeleteTag={requestDeleteTag}
             onToggleFilter={(tagId) => handleToggleTagFilter(tagId)}
           />
         ) : (
@@ -986,6 +1000,31 @@ export function App() {
             value={bulkTagDialog.tagNames}
             onChange={(tagNames) => setBulkTagDialog((previous) => (previous ? { ...previous, tagNames } : previous))}
           />
+        </Modal>
+      ) : null}
+      {deleteTagDialog ? (
+        <Modal
+          title="Delete tag?"
+          description={`"${deleteTagDialog.tag.name}" is currently assigned to ${deleteTagDialog.tag.itemCount} ${deleteTagDialog.tag.itemCount === 1 ? "file" : "files"}. Deleting it will remove the tag from those files.`}
+          footer={
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setDeleteTagDialog(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  const { id } = deleteTagDialog.tag;
+                  setDeleteTagDialog(null);
+                  void deleteTag(id);
+                }}
+              >
+                Delete tag
+              </Button>
+            </div>
+          }
+        >
+          <div className="text-sm text-muted-foreground">This cannot be undone from the current view.</div>
         </Modal>
       ) : null}
       <Toaster toasts={toasts} onDismiss={removeToast} />

@@ -14,7 +14,7 @@ export function TagManager({
   selectedTagIds: string[];
   onCreateTag: (name: string) => void;
   onRenameTag: (tagId: string, name: string) => void;
-  onDeleteTag: (tagId: string) => void;
+  onDeleteTag: (tag: CountedTag) => void;
   onToggleFilter: (tagId: string) => void;
 }) {
   const [newTagName, setNewTagName] = useState("");
@@ -100,7 +100,7 @@ export function TagManager({
                         Rename
                       </Button>
                     )}
-                    <Button variant="danger" onClick={() => onDeleteTag(tag.id)} type="button">
+                    <Button variant="danger" onClick={() => onDeleteTag(tag)} type="button">
                       Delete
                     </Button>
                   </div>

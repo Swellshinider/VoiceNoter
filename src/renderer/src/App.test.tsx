@@ -412,6 +412,30 @@ describe("App", () => {
     );
   });
 
+  it("shows a confirmation modal before deleting a tag that is in use", async () => {
+    const user = userEvent.setup();
+    const tags = [{ id: "tag-1", name: "urgent", itemCount: 2 }];
+
+    window.voiceNoter.library.getCurrentLibrary = vi.fn().mockResolvedValue(mockLibraryState);
+    window.voiceNoter.library.getLastLibrary = vi.fn().mockResolvedValue(mockLibraryState.path);
+    window.voiceNoter.queue.getSummary = vi.fn().mockResolvedValue(mockQueueSummary);
+    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ tags });
+    window.voiceNoter.tags.listTags = vi.fn().mockResolvedValue(tags);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /^Tag Manager$/i }));
+    await user.click(screen.getByRole("button", { name: /^Delete$/i }));
+
+    expect(await screen.findByText("Delete tag?")).toBeInTheDocument();
+    expect(screen.getByText(/currently assigned to 2 files/i)).toBeInTheDocument();
+    expect(window.voiceNoter.tags.deleteTag).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /^Delete tag$/i }));
+
+    await waitFor(() => expect(window.voiceNoter.tags.deleteTag).toHaveBeenCalledWith("tag-1"));
+  });
+
   it("confirms before leaving the focus page with unsaved transcript edits", async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);

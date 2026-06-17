@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Require confirmation before deleting a tag that is still assigned to imported files
 - Save transcript corrections explicitly with `Save` / `Cancel`, update the canonical SQLite transcript in place, refresh transcript search, and rewrite only the note `## Transcript` section
 
 ## [Unreleased] - 08-06-2026
