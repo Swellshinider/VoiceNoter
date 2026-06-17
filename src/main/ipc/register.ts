@@ -12,6 +12,7 @@ import {
   modelIdSchema,
   queueListQuerySchema,
   searchQuerySchema,
+  transcriptUpdateSchema,
 } from "../../shared/validation";
 import type { AppServices } from "../services/app-services";
 
@@ -43,6 +44,9 @@ export function registerIpcHandlers(services: AppServices): void {
   );
   ipcMain.handle(ipcChannels.items.updateMetadata, (_event, itemId: unknown, metadata: unknown) =>
     services.updateItemMetadata(itemIdSchema.parse(itemId), itemMetadataUpdateSchema.parse(metadata)),
+  );
+  ipcMain.handle(ipcChannels.items.updateTranscript, (_event, itemId: unknown, update: unknown) =>
+    services.updateTranscript(itemIdSchema.parse(itemId), transcriptUpdateSchema.parse(update)),
   );
 
   ipcMain.handle(ipcChannels.search.search, (_event, query: unknown) => services.search(searchQuerySchema.parse(query)));

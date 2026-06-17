@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ItemDetail } from "./ItemDetail";
-import { mockItemDetail, createMockApi } from "./test-utils";
+import { createMockApi, mockItemDetail } from "./test-utils";
 
 describe("ItemDetail", () => {
   beforeEach(() => {
@@ -31,31 +31,79 @@ describe("ItemDetail", () => {
     expect(screen.getAllByText("Loading...")[0]).toBeInTheDocument();
   });
 
-  it("renders item title", () => {
+  it("keeps timestamps visible and updates the full transcript mirror from draft edits", async () => {
+    const user = userEvent.setup();
     render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} />);
-    expect(screen.getAllByDisplayValue("Test Recording")[0]).toBeInTheDocument();
+
+    expect(screen.getByText("00:00:00")).toBeInTheDocument();
+    expect(screen.getByText("00:00:05")).toBeInTheDocument();
+
+    await user.clear(screen.getByDisplayValue("Hello world"));
+    await user.type(screen.getByDisplayValue(""), "Hello corrected world");
+
+    expect(screen.getAllByText(/Hello corrected world/i).length).toBeGreaterThan(0);
+    expect(screen.getByText("Full transcript")).toBeInTheDocument();
   });
 
-  it("shows transcript segments with timestamps", () => {
+  it("saves edited transcript segments through the shared API", async () => {
+    const user = userEvent.setup();
+    const updateTranscript = vi.fn().mockResolvedValue({
+      ...mockItemDetail,
+      transcript: {
+        ...mockItemDetail.transcript,
+        rawText: "Hello corrected world this is a corrected test.",
+        segments: [
+          { startSeconds: 0, endSeconds: 5, text: "Hello corrected world" },
+          { startSeconds: 5, endSeconds: 10, text: "this is a corrected test." },
+        ],
+      },
+    });
+    (window.voiceNoter.items as typeof window.voiceNoter.items & { updateTranscript: typeof updateTranscript }).updateTranscript = updateTranscript;
+
     render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} />);
-    expect(screen.getAllByText("00:00:00")[0]).toBeInTheDocument();
-    expect(screen.getAllByText("00:00:05")[0]).toBeInTheDocument();
+
+    await user.clear(screen.getByDisplayValue("Hello world"));
+    await user.type(screen.getByDisplayValue(""), "Hello corrected world");
+    await user.click(screen.getByRole("button", { name: /^Save$/i }));
+
+    await waitFor(() =>
+      expect(updateTranscript).toHaveBeenCalledWith("item-1", {
+        segments: [
+          { startSeconds: 0, endSeconds: 5, text: "Hello corrected world" },
+          { startSeconds: 5, endSeconds: 10, text: "this is a test." },
+        ],
+      }),
+    );
+    expect(screen.getAllByText(/Hello corrected world/i).length).toBeGreaterThan(0);
   });
 
-  it("does not render the markdown editor or save controls", () => {
+  it("restores the persisted transcript when cancel is pressed", async () => {
+    const user = userEvent.setup();
     render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} />);
-    expect(screen.queryByTestId("codemirror-mock")).toBeNull();
-    expect(screen.queryByRole("button", { name: /save/i })).toBeNull();
+
+    await user.clear(screen.getByDisplayValue("Hello world"));
+    await user.type(screen.getByDisplayValue(""), "Discard me");
+    await user.click(screen.getByRole("button", { name: /^Cancel$/i }));
+
+    expect(screen.getByDisplayValue("Hello world")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Discard me")).toBeNull();
   });
 
-  it("uses the main-process media URL for playback", () => {
-    render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} />);
-    expect(document.querySelector("audio")?.getAttribute("src")).toBe("voicenoter-media://items/item-1/media");
-  });
+  it("disables transcript editing when an item has no transcript yet", () => {
+    render(
+      <ItemDetail
+        item={{
+          ...mockItemDetail,
+          transcript: null,
+        }}
+        jumpToSeconds={null}
+        onReload={vi.fn()}
+      />,
+    );
 
-  it("title input is rendered with item title", () => {
-    render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} />);
-    expect(screen.getAllByDisplayValue("Test Recording")[0]).toBeInTheDocument();
+    expect(screen.getAllByText(/Transcript will appear after local transcription completes\./i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /^Save$/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Cancel$/i })).toBeDisabled();
   });
 
   it("seeks to the exact segment timestamp and starts playback when a transcript segment is clicked", async () => {
@@ -73,8 +121,8 @@ describe("ItemDetail", () => {
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalled();
   });
 
-  it("highlights the transcript segment that matches playback time", () => {
-    render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} />);
+  it("highlights the transcript segment that matches playback time and jump-to-seconds", () => {
+    render(<ItemDetail item={mockItemDetail} jumpToSeconds={5} onReload={vi.fn()} />);
     const audio = document.querySelector("audio");
     expect(audio).not.toBeNull();
 

@@ -140,6 +140,31 @@ export class NoteService {
     };
   }
 
+  async syncTranscriptSection(itemId: string, segments: TranscriptSegment[]): Promise<NoteContent | null> {
+    const existing = this.findNoteRow(itemId);
+    if (!existing) {
+      return null;
+    }
+
+    const markdown = replaceTranscriptSection(await readFile(existing.path, "utf8"), segments);
+    const now = new Date().toISOString();
+    const contentHash = hashContent(markdown);
+
+    await writeFile(existing.path, markdown, "utf8");
+    this.db
+      .prepare("UPDATE notes SET content_hash = ?, updated_at = ? WHERE item_id = ?")
+      .run(contentHash, now, itemId);
+
+    return {
+      itemId,
+      path: existing.path,
+      markdown,
+      frontmatter: JSON.parse(existing.frontmatter_json) as Record<string, unknown>,
+      contentHash,
+      updatedAt: now,
+    };
+  }
+
   private getItemRow(itemId: string): ItemRow {
     const row = this.db
       .prepare(
@@ -251,6 +276,22 @@ function renderTranscript(segments: TranscriptSegment[]): string {
   return segments
     .map((segment) => `### ${formatTimestamp(segment.startSeconds)}\n\n${segment.text.trim()}\n`)
     .join("\n");
+}
+
+export function renderTranscriptSection(segments: TranscriptSegment[]): string {
+  return `## Transcript\n\n${renderTranscript(segments)}`.trimEnd();
+}
+
+export function replaceTranscriptSection(markdown: string, segments: TranscriptSegment[]): string {
+  const transcriptSection = renderTranscriptSection(segments);
+  const normalized = markdown.replace(/\r\n/g, "\n");
+  const transcriptHeadingPattern = /^## Transcript\s*$/m;
+
+  if (transcriptHeadingPattern.test(normalized)) {
+    return normalized.replace(/^## Transcript\s*$[\s\S]*$/m, transcriptSection).trimEnd() + "\n";
+  }
+
+  return `${normalized.trimEnd()}\n\n${transcriptSection}\n`;
 }
 
 export function formatTimestamp(seconds: number): string {

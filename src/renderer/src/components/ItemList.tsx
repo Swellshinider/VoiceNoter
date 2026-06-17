@@ -12,6 +12,7 @@ export function ItemList({
   hasMore,
   onLoadMore,
   onSelectItem,
+  fullWidth,
 }: {
   items: ItemSummary[];
   selectedItemId: string | null;
@@ -22,10 +23,11 @@ export function ItemList({
   hasMore?: boolean;
   onLoadMore?: () => void;
   onSelectItem: (itemId: string, startSeconds?: number | null) => void;
+  fullWidth?: boolean;
 }) {
   const searchByItem = useMemo(() => new Map(searchResults.map((result) => [result.itemId, result])), [searchResults]);
   return (
-    <section className="flex h-full w-80 shrink-0 flex-col border-r border-border bg-background">
+    <section className={`flex h-full flex-col bg-background ${fullWidth ? "w-full" : "w-80 shrink-0 border-r border-border"}`}>
       <div className="sticky top-0 z-10 border-b border-border bg-background p-3 text-sm font-medium">
         {searchResults.length ? "Search Results" : activeFilterLabel ?? "Items"}
       </div>

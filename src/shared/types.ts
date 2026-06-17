@@ -79,6 +79,10 @@ export type TranscriptSegment = {
   text: string;
 };
 
+export type TranscriptUpdate = {
+  segments: TranscriptSegment[];
+};
+
 export type NoteContent = {
   itemId: string;
   path: string;
@@ -331,6 +335,7 @@ export type ItemsApi = {
   readNote(itemId: string): Promise<NoteContent>;
   saveNote(itemId: string, markdown: string): Promise<NoteContent>;
   updateItemMetadata(itemId: string, metadata: ItemMetadataUpdate): Promise<ItemDetail>;
+  updateTranscript(itemId: string, update: TranscriptUpdate): Promise<ItemDetail>;
 };
 
 export type SearchApi = {

@@ -29,6 +29,7 @@ export const ipcChannels = {
     readNote: "items:readNote",
     saveNote: "items:saveNote",
     updateMetadata: "items:updateMetadata",
+    updateTranscript: "items:updateTranscript",
   },
   search: {
     search: "search:search",

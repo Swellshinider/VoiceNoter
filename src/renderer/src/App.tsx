@@ -33,11 +33,18 @@ import { createPagedState, type PagedState } from "./lib/pagination";
 const PAGE_SIZE = 50;
 const MAX_ITEM_REFRESH = 200;
 const MAX_QUEUE_REFRESH = 500;
+const IMPORT_BLOCKED_MESSAGE = "Select a transcription model in Model Manager before importing.";
+const DISCARD_TRANSCRIPT_CHANGES_MESSAGE = "Discard unsaved transcript changes?";
 const selectedRefreshJobTypes = new Set<JobType>(["import_file", "inspect_media", "extract_audio", "transcribe", "generate_markdown", "index_note"]);
 
 type AsyncState<T> = {
   value: T | null;
   isLoading: boolean;
+};
+
+type FocusState = {
+  itemId: string;
+  originView: ViewKey;
 };
 
 export function App() {
@@ -53,6 +60,7 @@ export function App() {
   const [queueState, setQueueState] = useState<PagedState<Job>>(createPagedState<Job>());
   const [searchState, setSearchState] = useState<PagedState<SearchResult>>(createPagedState<SearchResult>());
   const [view, setView] = useState<ViewKey>("dashboard");
+  const [focusState, setFocusState] = useState<FocusState | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<AsyncState<ItemDetail>>({ value: null, isLoading: false });
   const [searchText, setSearchText] = useState("");
@@ -60,6 +68,7 @@ export function App() {
   const [statusMessage, setStatusMessage] = useState("Loading...");
   const [activeFilter, setActiveFilter] = useState<FilterState>(null);
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() => getSystemTheme());
+  const [hasUnsavedTranscriptChanges, setHasUnsavedTranscriptChanges] = useState(false);
   const { toasts, addToast, removeToast } = useToasts();
   const selectedItemIdRef = useRef<string | null>(null);
   const previousJobStatusesRef = useRef<Map<string, JobStatus>>(new Map());
@@ -67,10 +76,10 @@ export function App() {
   const activeFilterRef = useRef<FilterState>(activeFilter);
   const itemsPageRef = useRef<PageResult<ItemSummary> | null>(itemsState.page);
   const queuePageRef = useRef<PageResult<Job> | null>(queueState.page);
-  const searchPageRef = useRef<PageResult<SearchResult> | null>(searchState.page);
 
   const themePreference = settings?.theme ?? "dark";
   const resolvedTheme = themePreference === "system" ? systemTheme : themePreference;
+  const isImportBlocked = Boolean(library && !library.selectedModelId);
   useDocumentTheme(resolvedTheme);
 
   const refreshShellData = useCallback(async () => {
@@ -108,6 +117,11 @@ export function App() {
     setQueueSummary(nextQueueSummary);
     setDashboardSummary(nextDashboardSummary);
     setFacets(nextFacets);
+    if (!nextLibrary.selectedModelId) {
+      setView("models");
+      setStatusMessage(IMPORT_BLOCKED_MESSAGE);
+      return;
+    }
     setStatusMessage("Library ready");
   }, []);
 
@@ -266,10 +280,6 @@ export function App() {
   }, [queueState.page]);
 
   useEffect(() => {
-    searchPageRef.current = searchState.page;
-  }, [searchState.page]);
-
-  useEffect(() => {
     if (themePreference !== "system" || typeof window.matchMedia !== "function") {
       return;
     }
@@ -349,6 +359,7 @@ export function App() {
 
   function resetWorkspaceViewState() {
     setView("dashboard");
+    setFocusState(null);
     setActiveFilter(null);
     setSelectedItemId(null);
     setSelectedItem({ value: null, isLoading: false });
@@ -361,6 +372,43 @@ export function App() {
     setQueueSummary(null);
     setFacets(null);
     setDashboardStorage({ value: null, isLoading: false });
+    setHasUnsavedTranscriptChanges(false);
+  }
+
+  function confirmFocusExit(): boolean {
+    if (!focusState || !hasUnsavedTranscriptChanges) {
+      return true;
+    }
+    return window.confirm(DISCARD_TRANSCRIPT_CHANGES_MESSAGE);
+  }
+
+  function closeFocusView(): boolean {
+    if (!confirmFocusExit()) {
+      return false;
+    }
+    setFocusState(null);
+    setJumpToSeconds(null);
+    setHasUnsavedTranscriptChanges(false);
+    return true;
+  }
+
+  function navigateToView(nextView: ViewKey) {
+    if (!closeFocusView()) {
+      return;
+    }
+    setView(nextView);
+    if (nextView !== "all") {
+      setActiveFilter(null);
+    }
+  }
+
+  function openItemFocus(itemId: string, startSeconds?: number | null, originView: ViewKey = viewRef.current) {
+    if (!closeFocusView()) {
+      return;
+    }
+    setSelectedItemId(itemId);
+    setJumpToSeconds(startSeconds ?? null);
+    setFocusState({ itemId, originView });
   }
 
   async function chooseLibrary() {
@@ -386,6 +434,11 @@ export function App() {
   }
 
   async function importFiles(paths?: string[]) {
+    if (isImportBlocked) {
+      setStatusMessage(IMPORT_BLOCKED_MESSAGE);
+      addToast({ variant: "info", title: "Import blocked", message: IMPORT_BLOCKED_MESSAGE });
+      return;
+    }
     const importPaths =
       paths ??
       (await window.voiceNoter.import.chooseFilesForImport()).filter((candidate) => candidate.supported).map((candidate) => candidate.path);
@@ -416,6 +469,9 @@ export function App() {
 
   async function runSearch() {
     const text = searchText.trim();
+    if (!closeFocusView()) {
+      return;
+    }
     if (!text) {
       setSearchState(createPagedState<SearchResult>());
       setView("search");
@@ -431,21 +487,18 @@ export function App() {
     }
   }
 
-  function selectItem(itemId: string, startSeconds?: number | null) {
-    setSelectedItemId(itemId);
-    setJumpToSeconds(startSeconds ?? null);
-  }
-
   function openDashboardItem(itemId: string) {
-    setActiveFilter(null);
-    setJumpToSeconds(null);
-    setSelectedItemId(itemId);
-    setView("all");
+    openItemFocus(itemId, null, "dashboard");
   }
 
   function handleFilterSelect(filter: FilterState) {
     setActiveFilter(filter);
-    setView("all");
+    if (filter) {
+      if (!closeFocusView()) {
+        return;
+      }
+      setView("all");
+    }
   }
 
   async function handleLoadMoreItems() {
@@ -490,7 +543,13 @@ export function App() {
         void importFiles(paths);
       }}
     >
-      <Sidebar view={view} facets={facets} activeFilter={activeFilter} onViewChange={setView} onFilterSelect={handleFilterSelect} />
+      <Sidebar
+        view={view}
+        facets={facets}
+        activeFilter={activeFilter}
+        onViewChange={navigateToView}
+        onFilterSelect={handleFilterSelect}
+      />
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-3">
           <form
@@ -506,15 +565,30 @@ export function App() {
               Search
             </Button>
           </form>
-          <Button onClick={() => void importFiles()}>
+          {isImportBlocked ? <div className="hidden max-w-64 text-xs text-muted-foreground xl:block">{IMPORT_BLOCKED_MESSAGE}</div> : null}
+          <Button disabled={isImportBlocked} onClick={() => void importFiles()}>
             <Import data-icon="inline-start" />
             Import
           </Button>
-          <button className="rounded-md bg-muted px-3 py-1 text-xs text-muted-foreground" onClick={() => setView("queue")}>
+          <button className="rounded-md bg-muted px-3 py-1 text-xs text-muted-foreground" onClick={() => navigateToView("queue")}>
             {(queueSummary?.activeJobs ?? 0) > 0 ? queueSummary?.activeJobs : 0} active jobs
           </button>
         </header>
-        {view === "queue" ? (
+        {focusState ? (
+          <ItemDetailView
+            item={selectedItem.value}
+            jumpToSeconds={jumpToSeconds}
+            isLoading={selectedItem.isLoading}
+            onReload={() => void reloadSelectedItemAndVisibleList()}
+            onBack={() => {
+              void closeFocusView();
+            }}
+            onDirtyChange={setHasUnsavedTranscriptChanges}
+            onItemUpdated={(nextItem) => {
+              setSelectedItem({ value: nextItem, isLoading: false });
+            }}
+          />
+        ) : view === "queue" ? (
           <QueueView
             jobs={currentQueueJobs}
             summary={queueSummary}
@@ -593,23 +667,21 @@ export function App() {
             isLoading={!dashboardSummary}
             isLoadingStorage={dashboardStorage.isLoading}
             onSelectItem={openDashboardItem}
-            onOpenQueue={() => setView("queue")}
+            onOpenQueue={() => navigateToView("queue")}
           />
         ) : (
-          <div className="flex min-h-0 flex-1">
-            <ItemList
-              items={view === "search" ? searchItems : currentItemList}
-              selectedItemId={selectedItemId}
-              searchResults={currentSearchResults}
-              activeFilterLabel={activeFilter?.name}
-              isLoading={view === "search" ? searchState.isLoading : itemsState.isLoading}
-              isLoadingMore={view === "search" ? searchState.isLoadingMore : itemsState.isLoadingMore}
-              hasMore={view === "search" ? searchState.page?.nextOffset !== null : itemsState.page?.nextOffset !== null}
-              onLoadMore={() => void (view === "search" ? handleLoadMoreSearch() : handleLoadMoreItems())}
-              onSelectItem={selectItem}
-            />
-            <ItemDetailView item={selectedItem.value} jumpToSeconds={jumpToSeconds} isLoading={selectedItem.isLoading} onReload={() => void reloadSelectedItemAndVisibleList()} />
-          </div>
+          <ItemList
+            items={view === "search" ? searchItems : currentItemList}
+            selectedItemId={selectedItemId}
+            searchResults={currentSearchResults}
+            activeFilterLabel={activeFilter?.name}
+            isLoading={view === "search" ? searchState.isLoading : itemsState.isLoading}
+            isLoadingMore={view === "search" ? searchState.isLoadingMore : itemsState.isLoadingMore}
+            hasMore={view === "search" ? searchState.page?.nextOffset !== null : itemsState.page?.nextOffset !== null}
+            onLoadMore={() => void (view === "search" ? handleLoadMoreSearch() : handleLoadMoreItems())}
+            onSelectItem={(itemId, startSeconds) => openItemFocus(itemId, startSeconds, viewRef.current)}
+            fullWidth
+          />
         )}
         <footer className="h-7 shrink-0 border-t border-border bg-card px-3 py-1 text-xs text-muted-foreground">{statusMessage}</footer>
       </main>

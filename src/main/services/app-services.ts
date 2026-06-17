@@ -29,6 +29,7 @@ import type {
   QueueListQuery,
   QueueSummary,
   QueueUpdate,
+  TranscriptUpdate,
 } from "../../shared/types";
 import { userError, VoiceNoterError } from "../../shared/errors";
 import { getImportCandidate } from "../../shared/validation";
@@ -229,6 +230,7 @@ export class AppServices {
 
   async importFiles(paths: string[]): Promise<ImportResult> {
     const context = this.requireContext();
+    this.ensureImportModelSelected(context.db);
     const result = await new ImportService(context.libraryPath, context.db).importFiles(paths);
     void context.processing.processAllPending().catch((error) => {
       logBackgroundError("Failed to process pending jobs after import", error);
@@ -388,6 +390,68 @@ export class AppServices {
     return this.getItem(itemId);
   }
 
+  async updateTranscript(itemId: string, update: TranscriptUpdate): Promise<ItemDetail> {
+    const context = this.requireContext();
+    const transcriptRow = context.db
+      .prepare(
+        `
+          SELECT id, segments_json
+          FROM transcripts
+          WHERE item_id = ?
+          ORDER BY created_at DESC, rowid DESC
+          LIMIT 1
+        `,
+      )
+      .get(itemId) as
+      | {
+          id: string;
+          segments_json: string;
+        }
+      | undefined;
+
+    if (!transcriptRow) {
+      throw new VoiceNoterError(
+        userError("Transcript unavailable", "VoiceNoter cannot edit transcript text until transcription completes.", {
+          retryable: true,
+        }),
+      );
+    }
+
+    const existingSegments = JSON.parse(transcriptRow.segments_json) as TranscriptUpdate["segments"];
+    if (existingSegments.length !== update.segments.length) {
+      throw new VoiceNoterError(
+        userError("Transcript structure changed", "VoiceNoter only supports correcting the existing transcript text.", {
+          retryable: false,
+        }),
+      );
+    }
+
+    for (let index = 0; index < existingSegments.length; index += 1) {
+      const existing = existingSegments[index]!;
+      const next = update.segments[index]!;
+      if (existing.startSeconds !== next.startSeconds || existing.endSeconds !== next.endSeconds) {
+        throw new VoiceNoterError(
+          userError("Transcript structure changed", "VoiceNoter only supports correcting the existing transcript text.", {
+            retryable: false,
+          }),
+        );
+      }
+    }
+
+    const now = new Date().toISOString();
+    const rawText = update.segments.map((segment) => segment.text.trim()).join(" ").trim();
+    context.db.transaction(() => {
+      context.db
+        .prepare("UPDATE transcripts SET segments_json = ?, raw_text = ? WHERE id = ?")
+        .run(JSON.stringify(update.segments), rawText, transcriptRow.id);
+      context.db.prepare("UPDATE items SET updated_at = ? WHERE id = ?").run(now, itemId);
+    })();
+
+    await new NoteService(context.libraryPath, context.db).syncTranscriptSection(itemId, update.segments);
+    await new SearchService(context.db).indexItem(itemId);
+    return this.getItem(itemId);
+  }
+
   async search(query: SearchQuery): Promise<PageResult<SearchResult>> {
     return new SearchService(this.requireContext().db).search(query);
   }
@@ -431,5 +495,19 @@ export class AppServices {
       queue: this.queue,
       processing: this.processing,
     };
+  }
+
+  private ensureImportModelSelected(db: VoiceNoterDatabase): void {
+    const selected = db.prepare("SELECT id FROM models WHERE selected_at IS NOT NULL ORDER BY selected_at DESC LIMIT 1").get() as
+      | { id: string }
+      | undefined;
+    if (selected) {
+      return;
+    }
+    throw new VoiceNoterError(
+      userError("No transcription model selected", "Select a local transcription model before importing files into this library.", {
+        retryable: true,
+      }),
+    );
   }
 }

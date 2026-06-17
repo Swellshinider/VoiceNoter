@@ -12,6 +12,7 @@ import {
   modelIdSchema,
   queueListQuerySchema,
   searchQuerySchema,
+  transcriptUpdateSchema,
 } from "./validation";
 
 describe("media import validation", () => {
@@ -58,9 +59,30 @@ describe("ipc validation schemas", () => {
     expect(itemListQuerySchema.parse({ view: "tag", tagId: "tag-1" })).toEqual({ view: "tag", tagId: "tag-1" });
     expect(searchQuerySchema.parse({ text: "hello world", limit: 25 })).toEqual({ text: "hello world", limit: 25 });
     expect(itemMetadataUpdateSchema.parse({ title: "Updated", tagIds: ["tag-1"] })).toEqual({ title: "Updated", tagIds: ["tag-1"] });
+    expect(
+      transcriptUpdateSchema.parse({
+        segments: [
+          { startSeconds: 0, endSeconds: 4.5, text: " Intro " },
+          { startSeconds: 4.5, endSeconds: 8, text: "Second segment" },
+        ],
+      }),
+    ).toEqual({
+      segments: [
+        { startSeconds: 0, endSeconds: 4.5, text: "Intro" },
+        { startSeconds: 4.5, endSeconds: 8, text: "Second segment" },
+      ],
+    });
     expect(librarySettingsPatchSchema.parse({ theme: "dark", transcriptionLanguage: "auto" })).toEqual({
       theme: "dark",
       transcriptionLanguage: "auto",
     });
+  });
+
+  test("rejects transcript updates with blank segment text", () => {
+    expect(() =>
+      transcriptUpdateSchema.parse({
+        segments: [{ startSeconds: 0, endSeconds: 4, text: "   " }],
+      }),
+    ).toThrow();
   });
 });

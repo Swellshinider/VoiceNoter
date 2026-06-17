@@ -1,31 +1,45 @@
 import { useEffect, useRef, useState } from "react";
 import type { ItemDetail as ItemDetailType, TranscriptSegment } from "../../../shared/types";
-import { Input, Panel, Spinner } from "./ui";
+import { Button, Input, Panel, Spinner } from "./ui";
 
 export function ItemDetail({
   item,
   jumpToSeconds,
   isLoading,
   onReload,
+  onBack,
+  onDirtyChange,
+  onItemUpdated,
 }: {
   item: ItemDetailType | null;
   jumpToSeconds: number | null;
   isLoading?: boolean;
   onReload: () => void;
+  onBack?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  onItemUpdated?: (item: ItemDetailType) => void;
 }) {
   const mediaRef = useRef<HTMLMediaElement | null>(null);
+  const [localItem, setLocalItem] = useState<ItemDetailType | null>(item);
   const [title, setTitle] = useState("");
+  const [draftSegments, setDraftSegments] = useState<TranscriptSegment[] | null>(cloneSegments(item?.transcript?.segments ?? null));
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isSavingTranscript, setIsSavingTranscript] = useState(false);
 
   useEffect(() => {
-    setTitle(item?.title ?? "");
-  }, [item?.id, item?.title]);
+    setLocalItem(item);
+  }, [item]);
+
+  useEffect(() => {
+    setTitle(localItem?.title ?? "");
+    setDraftSegments(cloneSegments(localItem?.transcript?.segments ?? null));
+  }, [localItem]);
 
   useEffect(() => {
     setCurrentTime(jumpToSeconds ?? 0);
     setIsPlaying(false);
-  }, [item?.id, jumpToSeconds]);
+  }, [localItem?.id, jumpToSeconds]);
 
   useEffect(() => {
     const media = mediaRef.current;
@@ -51,18 +65,28 @@ export function ItemDetail({
       media.removeEventListener("pause", markPaused);
       media.removeEventListener("ended", markPaused);
     };
-  }, [item?.id]);
+  }, [localItem?.id]);
 
   useEffect(() => {
     if (jumpToSeconds === null) {
       return;
     }
     seekMediaToSeconds(mediaRef.current, jumpToSeconds, setCurrentTime, setIsPlaying);
-  }, [jumpToSeconds, item?.id]);
+  }, [jumpToSeconds, localItem?.id]);
 
-  const activeSegmentIndex = item?.transcript && isPlaying ? getActiveSegmentIndex(item.transcript.segments, currentTime) : null;
+  const transcriptSegments = draftSegments ?? cloneSegments(localItem?.transcript?.segments ?? null) ?? [];
+  const persistedSegments = localItem?.transcript?.segments ?? [];
+  const hasTranscript = persistedSegments.length > 0;
+  const isTranscriptDirty = hasTranscript && !areSegmentsEqual(transcriptSegments, persistedSegments);
+  const hasInvalidTranscript = transcriptSegments.some((segment) => segment.text.trim().length === 0);
+  const activeSegmentIndex = hasTranscript && isPlaying ? getActiveSegmentIndex(transcriptSegments, currentTime) : null;
+  const fullTranscript = transcriptSegments.map((segment) => segment.text).join(" ").trim();
 
-  if (!item) {
+  useEffect(() => {
+    onDirtyChange?.(isTranscriptDirty);
+  }, [isTranscriptDirty, onDirtyChange]);
+
+  if (!localItem) {
     if (isLoading) {
       return (
         <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
@@ -73,34 +97,73 @@ export function ItemDetail({
     }
     return <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">Select an item.</div>;
   }
+  const currentItem = localItem;
+
+  async function persistTitleIfNeeded() {
+    if (!title.trim() || title.trim() === currentItem.title) {
+      setTitle(currentItem.title);
+      return;
+    }
+    const updated = await window.voiceNoter.items.updateItemMetadata(currentItem.id, { title: title.trim() });
+    setLocalItem(updated);
+    onItemUpdated?.(updated);
+    onReload();
+  }
+
+  async function saveTranscript() {
+    if (!hasTranscript || !isTranscriptDirty || hasInvalidTranscript || isSavingTranscript) {
+      return;
+    }
+    setIsSavingTranscript(true);
+    try {
+      const updated = await window.voiceNoter.items.updateTranscript(currentItem.id, {
+        segments: transcriptSegments.map((segment) => ({
+          ...segment,
+          text: segment.text.trim(),
+        })),
+      });
+      setLocalItem(updated);
+      onItemUpdated?.(updated);
+      onReload();
+    } finally {
+      setIsSavingTranscript(false);
+    }
+  }
+
+  function cancelTranscriptDraft() {
+    setDraftSegments(cloneSegments(currentItem.transcript?.segments ?? null));
+  }
 
   return (
     <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
-      <div className="border-b border-border bg-card p-3">
-        <div className="flex items-center gap-3">
+      <div className="border-b border-border bg-card p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          {onBack ? (
+            <Button variant="secondary" onClick={onBack}>
+              Back
+            </Button>
+          ) : null}
           <Input
-            className="flex-1 text-base font-medium"
+            className="min-w-[16rem] flex-1 text-base font-medium"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             onBlur={() => {
-              if (title.trim() && title !== item.title) {
-                void window.voiceNoter.items.updateItemMetadata(item.id, { title: title.trim() }).then(onReload);
-              }
+              void persistTitleIfNeeded();
             }}
           />
         </div>
       </div>
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(360px,1fr)_320px] gap-3 overflow-hidden p-3">
-        <div className="flex min-h-0 flex-col gap-3">
-          <Panel className="p-3">
-            {item.sourceType === "video" ? (
+      <div className="grid min-h-0 flex-1 gap-4 overflow-auto p-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+        <div className="space-y-4">
+          <Panel className="p-4">
+            {currentItem.sourceType === "video" ? (
               <video
                 ref={(node) => {
                   mediaRef.current = node;
                 }}
                 className="aspect-video w-full rounded bg-black"
                 controls
-                src={item.mediaUrl}
+                src={currentItem.mediaUrl}
               />
             ) : (
               <audio
@@ -109,42 +172,98 @@ export function ItemDetail({
                 }}
                 className="w-full"
                 controls
-                src={item.mediaUrl}
+                src={currentItem.mediaUrl}
               />
             )}
           </Panel>
-        </div>
-        <Panel className="min-h-0 overflow-auto p-3">
-          <div className="mb-3 text-sm font-medium">Transcript</div>
-          {item.transcript ? (
-            <div className="flex flex-col gap-2">
-              {item.transcript.segments.map((segment, index) => {
-                const isActive = activeSegmentIndex === index;
-                return (
-                  <button
-                    key={`${segment.startSeconds}-${segment.text}`}
-                    aria-current={isActive ? "true" : undefined}
-                    className={`rounded-md border p-2 text-left text-sm transition ${
-                      isActive
-                        ? "border-primary bg-primary/10 text-foreground shadow-sm"
-                        : "border-border bg-background hover:bg-secondary"
-                    }`}
-                    onClick={() => {
-                      seekMediaToSeconds(mediaRef.current, segment.startSeconds, setCurrentTime, setIsPlaying);
-                    }}
-                  >
-                    <div className="mb-1 text-xs font-medium text-primary">{formatTimestamp(segment.startSeconds)}</div>
-                    <div className="text-muted-foreground">{segment.text}</div>
-                  </button>
-                );
-              })}
+
+          <Panel className="min-h-0 p-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium">Transcript segments</div>
+                <div className="text-xs text-muted-foreground">Edit text only. Timestamps stay fixed.</div>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="secondary" disabled={!hasTranscript || !isTranscriptDirty || isSavingTranscript} onClick={cancelTranscriptDraft}>
+                  Cancel
+                </Button>
+                <Button disabled={!hasTranscript || !isTranscriptDirty || hasInvalidTranscript || isSavingTranscript} onClick={() => void saveTranscript()}>
+                  {isSavingTranscript ? "Saving..." : "Save"}
+                </Button>
+              </div>
             </div>
+
+            {hasTranscript ? (
+              <div className="flex flex-col gap-3">
+                {transcriptSegments.map((segment, index) => {
+                  const isActive = activeSegmentIndex === index;
+                  return (
+                    <div
+                      key={`${segment.startSeconds}-${segment.endSeconds}`}
+                      className={`rounded-md border p-3 transition ${
+                        isActive ? "border-primary bg-primary/10" : "border-border bg-background"
+                      }`}
+                    >
+                      <button
+                        aria-current={isActive ? "true" : undefined}
+                        className="mb-3 text-xs font-medium text-primary"
+                        onClick={() => {
+                          seekMediaToSeconds(mediaRef.current, segment.startSeconds, setCurrentTime, setIsPlaying);
+                        }}
+                      >
+                        {formatTimestamp(segment.startSeconds)}
+                      </button>
+                      <textarea
+                        className="min-h-24 w-full resize-y rounded-md border border-input bg-card p-3 text-sm text-foreground outline-none transition focus:ring-2 focus:ring-ring"
+                        value={segment.text}
+                        onChange={(event) => {
+                          const nextText = event.target.value;
+                          setDraftSegments((previous) =>
+                            (previous ?? []).map((previousSegment, previousIndex) =>
+                              previousIndex === index ? { ...previousSegment, text: nextText } : previousSegment,
+                            ),
+                          );
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">Transcript will appear after local transcription completes.</div>
+            )}
+          </Panel>
+        </div>
+
+        <Panel className="flex min-h-[20rem] flex-col p-4">
+          <div className="mb-3">
+            <div className="text-sm font-medium">Full transcript</div>
+            <div className="text-xs text-muted-foreground">Read-only preview of the saved-or-draft transcript text.</div>
+          </div>
+          {hasTranscript ? (
+            <div className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap text-sm text-muted-foreground">{fullTranscript}</div>
           ) : (
             <div className="text-sm text-muted-foreground">Transcript will appear after local transcription completes.</div>
           )}
         </Panel>
       </div>
     </section>
+  );
+}
+
+function cloneSegments(segments: TranscriptSegment[] | null): TranscriptSegment[] | null {
+  return segments ? segments.map((segment) => ({ ...segment })) : null;
+}
+
+function areSegmentsEqual(left: TranscriptSegment[], right: TranscriptSegment[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every(
+    (segment, index) =>
+      segment.startSeconds === right[index]?.startSeconds &&
+      segment.endSeconds === right[index]?.endSeconds &&
+      segment.text === right[index]?.text,
   );
 }
 
@@ -173,7 +292,10 @@ function seekMediaToSeconds(
   } else {
     media.currentTime = seconds;
   }
-  void media.play().catch(() => undefined);
+  const playback = media.play();
+  if (playback && typeof playback.catch === "function") {
+    void playback.catch(() => undefined);
+  }
 }
 
 function getActiveSegmentIndex(segments: TranscriptSegment[], currentTime: number): number | null {

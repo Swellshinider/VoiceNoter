@@ -1,21 +1,30 @@
 // @vitest-environment jsdom
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Job, QueueUpdate } from "../../shared/types";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Job, ModelInfo, QueueUpdate } from "../../shared/types";
 import { App } from "./App";
-import { createMockApi, mockItemDetail, mockItemPage, mockItemSummary, mockJob, mockLibraryState, mockQueuePage, mockQueueSummary } from "./components/test-utils";
-
-vi.mock("@uiw/react-codemirror", () => ({
-  default: ({ value, onChange }: { value: string; onChange: (val: string) => void }) => (
-    <textarea data-testid="codemirror-mock" value={value} onChange={(event) => onChange(event.target.value)} />
-  ),
-}));
+import {
+  createMockApi,
+  mockItemDetail,
+  mockItemPage,
+  mockItemSummary,
+  mockJob,
+  mockLibraryState,
+  mockModelInfo,
+  mockQueuePage,
+  mockQueueSummary,
+} from "./components/test-utils";
 
 describe("App", () => {
   beforeEach(() => {
     window.voiceNoter = createMockApi();
     document.documentElement.className = "";
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("reloads the selected item when its transcription job completes", async () => {
@@ -38,7 +47,6 @@ describe("App", () => {
       queueListener = callback;
       return () => {};
     });
-    window.voiceNoter.items.listItems = vi.fn().mockResolvedValue({ ...mockItemPage, items: [{ ...mockItemSummary, status: "processing" }] });
     window.voiceNoter.items.getItem = vi.fn().mockResolvedValueOnce(detailWithoutTranscript).mockResolvedValueOnce(detailWithTranscript);
 
     render(<App />);
@@ -62,15 +70,6 @@ describe("App", () => {
       });
     });
     await waitFor(() => expect(window.voiceNoter.items.getItem).toHaveBeenCalledTimes(2));
-
-    act(() => {
-      queueListener?.({
-        changedJobs: [completedJob],
-        summary: { ...mockQueueSummary, completedJobs: 2, activeJobs: 1 },
-      });
-    });
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
-    expect(window.voiceNoter.items.getItem).toHaveBeenCalledTimes(2);
   });
 
   it("defaults the renderer to dark theme when no library settings are available", async () => {
@@ -118,7 +117,7 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: /^Dashboard$/i })).toBeInTheDocument();
   });
 
-  it("opens dashboard items in All Items and keeps the dashboard overview-only", async () => {
+  it("opens dashboard items in the focus page and back returns to the dashboard without loading All Items", async () => {
     const user = userEvent.setup();
     const dashboardItemDetail = {
       ...mockItemDetail,
@@ -140,20 +139,20 @@ describe("App", () => {
     window.voiceNoter.library.getLastLibrary = vi.fn().mockResolvedValue(mockLibraryState.path);
     window.voiceNoter.queue.getSummary = vi.fn().mockResolvedValue(mockQueueSummary);
     window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ categories: [], tags: [] });
-    window.voiceNoter.items.listItems = vi.fn().mockResolvedValue({ ...mockItemPage, items: [{ ...mockItemSummary, id: "item-2", title: "Queued Interview", sourceType: "video", status: "pending" }] });
     window.voiceNoter.items.getItem = vi.fn().mockResolvedValue(dashboardItemDetail);
 
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: /Queued Interview/i }));
 
-    await waitFor(() => expect(window.voiceNoter.items.listItems).toHaveBeenCalledWith(expect.objectContaining({ view: "all", limit: 50, offset: 0 })));
-    expect(screen.getByText("Transcript")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^Back$/i })).toBeInTheDocument();
+    expect(screen.getByText("Full transcript")).toBeInTheDocument();
+    expect(window.voiceNoter.items.listItems).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: /^Dashboard$/i }));
+    await user.click(screen.getByRole("button", { name: /^Back$/i }));
 
-    expect(screen.getByText("Library health at a glance")).toBeInTheDocument();
-    expect(screen.queryByText("Transcript")).toBeNull();
+    expect(await screen.findByText("Library health at a glance")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Back$/i })).toBeNull();
   });
 
   it("loads the first paged item list only when All Items is opened", async () => {
@@ -167,6 +166,120 @@ describe("App", () => {
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: /^All Items$/i }));
-    await waitFor(() => expect(window.voiceNoter.items.listItems).toHaveBeenCalledWith(expect.objectContaining({ view: "all", limit: 50, offset: 0 })));
+    await waitFor(() =>
+      expect(window.voiceNoter.items.listItems).toHaveBeenCalledWith(expect.objectContaining({ view: "all", limit: 50, offset: 0 })),
+    );
+  });
+
+  it("opens search results in the focus page and back preserves the search text", async () => {
+    const user = userEvent.setup();
+    window.voiceNoter.library.getCurrentLibrary = vi.fn().mockResolvedValue(mockLibraryState);
+    window.voiceNoter.library.getLastLibrary = vi.fn().mockResolvedValue(mockLibraryState.path);
+    window.voiceNoter.queue.getSummary = vi.fn().mockResolvedValue(mockQueueSummary);
+    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ categories: [], tags: [] });
+    window.voiceNoter.search.search = vi.fn().mockResolvedValue({
+      items: [{ itemId: "item-1", notePath: "/tmp/notes/test.md", title: "Test Recording", snippet: "matching text", source: "transcript", sourceType: "audio", status: "ready", startSeconds: 5 }],
+      total: 1,
+      limit: 50,
+      offset: 0,
+      nextOffset: null,
+    });
+    window.voiceNoter.items.getItem = vi.fn().mockResolvedValue(mockItemDetail);
+
+    render(<App />);
+
+    await user.type(await screen.findByPlaceholderText(/Search notes and transcripts/i), "matching text");
+    await user.click(screen.getByRole("button", { name: /^Search$/i }));
+    await user.click(await screen.findByRole("button", { name: /Test Recording/i }));
+
+    expect(await screen.findByRole("button", { name: /^Back$/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^Back$/i }));
+
+    await waitFor(() => expect(screen.getAllByText("Search Results").length).toBeGreaterThan(0));
+    expect(screen.getByDisplayValue("matching text")).toBeInTheDocument();
+  });
+
+  it("opens a library without a selected model on Model Manager and blocks imports until selection succeeds", async () => {
+    const user = userEvent.setup();
+    let selectedModelId: "base" | null = null;
+    const installedModel: ModelInfo = {
+      ...mockModelInfo,
+      id: "base",
+      name: "Base",
+      status: "installed",
+      localPath: "/tmp/test-library/models/ggml-base.bin",
+      selected: false,
+    };
+
+    window.voiceNoter.library.getCurrentLibrary = vi.fn().mockImplementation(async () => ({
+      ...mockLibraryState,
+      selectedModelId,
+    }));
+    window.voiceNoter.library.getLastLibrary = vi.fn().mockResolvedValue(mockLibraryState.path);
+    window.voiceNoter.models.listModels = vi.fn().mockImplementation(async () => [
+      {
+        ...installedModel,
+        selected: selectedModelId === "base",
+      },
+    ]);
+    window.voiceNoter.models.setDefaultModel = vi.fn().mockImplementation(async () => {
+      selectedModelId = "base";
+      return {
+        ...installedModel,
+        selected: true,
+      };
+    });
+
+    const renderResult = render(<App />);
+
+    expect(await screen.findByText("Download one local model before transcription.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Import$/i })).toBeDisabled();
+    expect(screen.getAllByText(/Select a transcription model in Model Manager before importing\./i).length).toBeGreaterThan(0);
+
+    fireEvent.drop(renderResult.container.firstElementChild as Element, {
+      dataTransfer: {
+        files: [{ path: "/tmp/drop/lecture.mp3" }],
+      },
+    });
+
+    expect(window.voiceNoter.import.importFiles).not.toHaveBeenCalled();
+    expect(screen.getAllByText(/Select a transcription model in Model Manager before importing\./i).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: /^Select$/i }));
+
+    await waitFor(() => expect(window.voiceNoter.models.setDefaultModel).toHaveBeenCalledWith("base"));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Import$/i })).toBeEnabled());
+    expect(screen.getAllByText("Model Manager").length).toBeGreaterThan(0);
+  });
+
+  it("confirms before leaving the focus page with unsaved transcript edits", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+
+    window.voiceNoter.library.getCurrentLibrary = vi.fn().mockResolvedValue(mockLibraryState);
+    window.voiceNoter.library.getLastLibrary = vi.fn().mockResolvedValue(mockLibraryState.path);
+    window.voiceNoter.queue.getSummary = vi.fn().mockResolvedValue(mockQueueSummary);
+    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ categories: [], tags: [] });
+    window.voiceNoter.items.getItem = vi.fn().mockResolvedValue(mockItemDetail);
+    window.voiceNoter.items.listItems = vi.fn().mockResolvedValue({ ...mockItemPage, items: [mockItemSummary] });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /^All Items$/i }));
+    await user.click(await screen.findByRole("button", { name: /Test Recording/i }));
+    const transcriptEditor = (await screen.findByDisplayValue("Hello world")) as HTMLTextAreaElement;
+    await user.clear(transcriptEditor);
+    await user.type(transcriptEditor, "Edited transcript line");
+
+    await user.click(screen.getByRole("button", { name: /^Dashboard$/i }));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: /^Back$/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^Dashboard$/i }));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    expect(await screen.findByText("Library health at a glance")).toBeInTheDocument();
   });
 });

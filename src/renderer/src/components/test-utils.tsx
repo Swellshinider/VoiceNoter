@@ -52,6 +52,7 @@ export function createMockApi(): VoiceNoterApi {
       readNote: vi.fn(),
       saveNote: vi.fn(),
       updateItemMetadata: vi.fn(),
+      updateTranscript: vi.fn(),
     },
     search: {
       search: vi.fn().mockResolvedValue(mockSearchPage),
