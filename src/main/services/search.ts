@@ -181,9 +181,10 @@ function toFtsPhrase(text: string): string {
 function buildSearchWhereClause(query: SearchQuery, ftsQuery: string): { whereClause: string; params: unknown[] } {
   const clauses = ["search_entries_fts MATCH ?"];
   const params: unknown[] = [ftsQuery];
-  if (query.tagId) {
-    clauses.push("items.id IN (SELECT item_id FROM item_tags WHERE tag_id = ?)");
-    params.push(query.tagId);
+  if (query.tagIds && query.tagIds.length > 0) {
+    const placeholders = query.tagIds.map(() => "?").join(", ");
+    clauses.push(`items.id IN (SELECT DISTINCT item_id FROM item_tags WHERE tag_id IN (${placeholders}))`);
+    params.push(...query.tagIds);
   }
   return { whereClause: `WHERE ${clauses.join(" AND ")}`, params };
 }

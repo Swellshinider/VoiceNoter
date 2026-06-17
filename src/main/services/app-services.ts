@@ -23,6 +23,8 @@ import type {
   ReindexResult,
   RescanResult,
   DashboardStorageBreakdown,
+  Tag,
+  TagRenameResult,
   SearchQuery,
   SearchResult,
   DashboardSummary,
@@ -44,6 +46,7 @@ import { ProcessingService } from "./processing";
 import { QueueService } from "./queue";
 import { RecentLibraryService } from "./recent-library";
 import { SearchService } from "./search";
+import { assignTagNamesToItems, deleteTag, getOrCreateTag, listTags, removeTagNamesFromItems, renameTag, replaceItemTagNames } from "./tags";
 import { getDashboardStorageBreakdown, getDashboardSummary } from "./dashboard";
 
 function logBackgroundError(message: string, error: unknown): void {
@@ -296,6 +299,10 @@ export class AppServices {
     return getItemFacets(this.requireContext().db);
   }
 
+  async listTags(): Promise<ItemFacets["tags"]> {
+    return listTags(this.requireContext().db);
+  }
+
   async getItem(itemId: string): Promise<ItemDetail> {
     const { db, libraryPath } = this.requireContext();
     const row = db
@@ -367,21 +374,63 @@ export class AppServices {
   async updateItemMetadata(itemId: string, metadata: ItemMetadataUpdate): Promise<ItemDetail> {
     const { db } = this.requireContext();
     const now = new Date().toISOString();
-    db.transaction(() => {
-      if (metadata.title !== undefined) {
-        const existing = db.prepare("SELECT title FROM items WHERE id = ?").get(itemId) as {
-          title: string;
-        };
-        db.prepare("UPDATE items SET title = ?, updated_at = ? WHERE id = ?").run(metadata.title ?? existing.title, now, itemId);
+    let changed = false;
+
+    if (metadata.title !== undefined) {
+      const existing = db.prepare("SELECT title FROM items WHERE id = ?").get(itemId) as {
+        title: string;
+      };
+      const nextTitle = metadata.title ?? existing.title;
+      if (nextTitle !== existing.title) {
+        db.prepare("UPDATE items SET title = ?, updated_at = ? WHERE id = ?").run(nextTitle, now, itemId);
+        changed = true;
       }
-      if (metadata.tagIds) {
-        db.prepare("DELETE FROM item_tags WHERE item_id = ?").run(itemId);
-        for (const tagId of metadata.tagIds) {
-          db.prepare("INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)").run(itemId, tagId);
-        }
-      }
-    })();
+    }
+
+    if (metadata.tagNames !== undefined) {
+      replaceItemTagNames(db, itemId, metadata.tagNames);
+      db.prepare("UPDATE items SET updated_at = ? WHERE id = ?").run(now, itemId);
+      changed = true;
+    }
+
+    if (changed) {
+      await this.syncItemsAfterMetadataChange([itemId]);
+    }
+
     return this.getItem(itemId);
+  }
+
+  async createTag(name: string): Promise<Tag> {
+    return getOrCreateTag(this.requireContext().db, name);
+  }
+
+  async renameTag(tagId: string, name: string): Promise<TagRenameResult> {
+    const context = this.requireContext();
+    const { result, affectedItemIds } = renameTag(context.db, tagId, name);
+    this.touchItems(context.db, affectedItemIds);
+    await this.syncItemsAfterMetadataChange(affectedItemIds);
+    return result;
+  }
+
+  async deleteTag(tagId: string): Promise<void> {
+    const context = this.requireContext();
+    const affectedItemIds = deleteTag(context.db, tagId);
+    this.touchItems(context.db, affectedItemIds);
+    await this.syncItemsAfterMetadataChange(affectedItemIds);
+  }
+
+  async assignTagsToItems(itemIds: string[], tagNames: string[]): Promise<void> {
+    const context = this.requireContext();
+    const affectedItemIds = assignTagNamesToItems(context.db, itemIds, tagNames);
+    this.touchItems(context.db, affectedItemIds);
+    await this.syncItemsAfterMetadataChange(affectedItemIds);
+  }
+
+  async removeTagsFromItems(itemIds: string[], tagNames: string[]): Promise<void> {
+    const context = this.requireContext();
+    const affectedItemIds = removeTagNamesFromItems(context.db, itemIds, tagNames);
+    this.touchItems(context.db, affectedItemIds);
+    await this.syncItemsAfterMetadataChange(affectedItemIds);
   }
 
   async updateTranscript(itemId: string, update: TranscriptUpdate): Promise<ItemDetail> {
@@ -503,5 +552,29 @@ export class AppServices {
         retryable: true,
       }),
     );
+  }
+
+  private touchItems(db: VoiceNoterDatabase, itemIds: string[]): void {
+    if (itemIds.length === 0) {
+      return;
+    }
+    const update = db.prepare("UPDATE items SET updated_at = ? WHERE id = ?");
+    const now = new Date().toISOString();
+    for (const itemId of new Set(itemIds)) {
+      update.run(now, itemId);
+    }
+  }
+
+  private async syncItemsAfterMetadataChange(itemIds: string[]): Promise<void> {
+    if (itemIds.length === 0) {
+      return;
+    }
+    const context = this.requireContext();
+    const noteService = new NoteService(context.libraryPath, context.db);
+    const searchService = new SearchService(context.db);
+    for (const itemId of new Set(itemIds)) {
+      await noteService.syncMetadataFromItem(itemId);
+      await searchService.indexItem(itemId);
+    }
   }
 }

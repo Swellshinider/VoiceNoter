@@ -98,7 +98,7 @@ export type Tag = {
 
 export type ItemMetadataUpdate = {
   title?: string;
-  tagIds?: string[];
+  tagNames?: string[];
 };
 
 export type PageRequest = {
@@ -124,7 +124,7 @@ export type ItemFacets = {
 
 export type ItemListQuery = {
   view?: "all" | "tag";
-  tagId?: string;
+  tagIds?: string[];
 } & PageRequest;
 
 export type JobStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
@@ -188,8 +188,13 @@ export type ProcessingEvent = {
 
 export type SearchQuery = {
   text: string;
-  tagId?: string;
+  tagIds?: string[];
 } & PageRequest;
+
+export type TagRenameResult = {
+  tag: Tag;
+  mergedTagId: string | null;
+};
 
 export type SearchResult = {
   itemId: string;
@@ -331,6 +336,15 @@ export type ItemsApi = {
   updateTranscript(itemId: string, update: TranscriptUpdate): Promise<ItemDetail>;
 };
 
+export type TagsApi = {
+  listTags(): Promise<CountedTag[]>;
+  createTag(name: string): Promise<Tag>;
+  renameTag(tagId: string, name: string): Promise<TagRenameResult>;
+  deleteTag(tagId: string): Promise<void>;
+  assignTagsToItems(itemIds: string[], tagNames: string[]): Promise<void>;
+  removeTagsFromItems(itemIds: string[], tagNames: string[]): Promise<void>;
+};
+
 export type SearchApi = {
   search(query: SearchQuery): Promise<PageResult<SearchResult>>;
   reindex(): Promise<ReindexResult>;
@@ -353,6 +367,7 @@ export type VoiceNoterApi = {
   import: ImportApi;
   queue: QueueApi;
   items: ItemsApi;
+  tags: TagsApi;
   search: SearchApi;
   dashboard: DashboardApi;
   models: ModelsApi;

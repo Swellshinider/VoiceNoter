@@ -3,6 +3,7 @@ import { ipcChannels } from "../../shared/ipc";
 import {
   importPathsSchema,
   itemIdSchema,
+  itemIdsSchema,
   itemListQuerySchema,
   itemMetadataUpdateSchema,
   jobIdSchema,
@@ -12,6 +13,9 @@ import {
   modelIdSchema,
   queueListQuerySchema,
   searchQuerySchema,
+  tagIdSchema,
+  tagNameSchema,
+  tagNamesSchema,
   transcriptUpdateSchema,
 } from "../../shared/validation";
 import type { AppServices } from "../services/app-services";
@@ -47,6 +51,19 @@ export function registerIpcHandlers(services: AppServices): void {
   );
   ipcMain.handle(ipcChannels.items.updateTranscript, (_event, itemId: unknown, update: unknown) =>
     services.updateTranscript(itemIdSchema.parse(itemId), transcriptUpdateSchema.parse(update)),
+  );
+
+  ipcMain.handle(ipcChannels.tags.list, () => services.listTags());
+  ipcMain.handle(ipcChannels.tags.create, (_event, name: unknown) => services.createTag(tagNameSchema.parse(name)));
+  ipcMain.handle(ipcChannels.tags.rename, (_event, tagId: unknown, name: unknown) =>
+    services.renameTag(tagIdSchema.parse(tagId), tagNameSchema.parse(name)),
+  );
+  ipcMain.handle(ipcChannels.tags.delete, (_event, tagId: unknown) => services.deleteTag(tagIdSchema.parse(tagId)));
+  ipcMain.handle(ipcChannels.tags.assignToItems, (_event, itemIds: unknown, tagNames: unknown) =>
+    services.assignTagsToItems(itemIdsSchema.parse(itemIds), tagNamesSchema.parse(tagNames)),
+  );
+  ipcMain.handle(ipcChannels.tags.removeFromItems, (_event, itemIds: unknown, tagNames: unknown) =>
+    services.removeTagsFromItems(itemIdsSchema.parse(itemIds), tagNamesSchema.parse(tagNames)),
   );
 
   ipcMain.handle(ipcChannels.search.search, (_event, query: unknown) => services.search(searchQuerySchema.parse(query)));

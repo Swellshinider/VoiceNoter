@@ -55,6 +55,14 @@ export function createMockApi(): VoiceNoterApi {
       updateItemMetadata: vi.fn(),
       updateTranscript: vi.fn(),
     },
+    tags: {
+      listTags: vi.fn().mockResolvedValue(mockItemFacets.tags),
+      createTag: vi.fn(),
+      renameTag: vi.fn(),
+      deleteTag: vi.fn(),
+      assignTagsToItems: vi.fn(),
+      removeTagsFromItems: vi.fn(),
+    },
     search: {
       search: vi.fn().mockResolvedValue(mockSearchPage),
       reindex: vi.fn(),

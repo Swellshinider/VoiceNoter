@@ -8,6 +8,7 @@ import type {
   ModelsApi,
   QueueApi,
   SearchApi,
+  TagsApi,
   VoiceNoterApi,
 } from "../shared/types";
 
@@ -55,6 +56,15 @@ const items: ItemsApi = {
   updateTranscript: (itemId, update) => ipcRenderer.invoke(ipcChannels.items.updateTranscript, itemId, update),
 };
 
+const tags: TagsApi = {
+  listTags: () => ipcRenderer.invoke(ipcChannels.tags.list),
+  createTag: (name) => ipcRenderer.invoke(ipcChannels.tags.create, name),
+  renameTag: (tagId, name) => ipcRenderer.invoke(ipcChannels.tags.rename, tagId, name),
+  deleteTag: (tagId) => ipcRenderer.invoke(ipcChannels.tags.delete, tagId),
+  assignTagsToItems: (itemIds, tagNames) => ipcRenderer.invoke(ipcChannels.tags.assignToItems, itemIds, tagNames),
+  removeTagsFromItems: (itemIds, tagNames) => ipcRenderer.invoke(ipcChannels.tags.removeFromItems, itemIds, tagNames),
+};
+
 const search: SearchApi = {
   search: (query) => ipcRenderer.invoke(ipcChannels.search.search, query),
   reindex: () => ipcRenderer.invoke(ipcChannels.search.reindex),
@@ -77,6 +87,7 @@ const api: VoiceNoterApi = {
   import: importApi,
   queue,
   items,
+  tags,
   search,
   dashboard,
   models,

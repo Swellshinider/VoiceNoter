@@ -56,6 +56,31 @@ export function Panel({ children, className = "" }: { children: ReactNode; class
   return <section className={`rounded-md border border-border bg-card ${className}`}>{children}</section>;
 }
 
+export function Modal({
+  title,
+  description,
+  children,
+  footer,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4">
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
+        <div className="border-b border-border px-5 py-4">
+          <div className="text-base font-semibold">{title}</div>
+          {description ? <div className="mt-1 text-sm text-muted-foreground">{description}</div> : null}
+        </div>
+        <div className="min-h-0 overflow-auto p-5">{children}</div>
+        {footer ? <div className="border-t border-border px-5 py-4">{footer}</div> : null}
+      </div>
+    </div>
+  );
+}
+
 export type ToastEntry = {
   id: string;
   variant: "success" | "error" | "info";

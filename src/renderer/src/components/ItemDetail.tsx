@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { ItemDetail as ItemDetailType, TranscriptSegment } from "../../../shared/types";
+import { TagInput } from "./TagInput";
 import { Button, Input, Panel, Spinner } from "./ui";
 
 export function ItemDetail({
   item,
+  availableTagNames,
   jumpToSeconds,
   isLoading,
   onReload,
@@ -12,6 +14,7 @@ export function ItemDetail({
   onItemUpdated,
 }: {
   item: ItemDetailType | null;
+  availableTagNames: string[];
   jumpToSeconds: number | null;
   isLoading?: boolean;
   onReload: () => void;
@@ -22,10 +25,12 @@ export function ItemDetail({
   const mediaRef = useRef<HTMLMediaElement | null>(null);
   const [localItem, setLocalItem] = useState<ItemDetailType | null>(item);
   const [title, setTitle] = useState("");
+  const [tagNames, setTagNames] = useState<string[]>(item?.tags.map((tag) => tag.name) ?? []);
   const [draftSegments, setDraftSegments] = useState<TranscriptSegment[] | null>(cloneSegments(item?.transcript?.segments ?? null));
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isSavingTranscript, setIsSavingTranscript] = useState(false);
+  const [isSavingTags, setIsSavingTags] = useState(false);
 
   useEffect(() => {
     setLocalItem(item);
@@ -33,6 +38,7 @@ export function ItemDetail({
 
   useEffect(() => {
     setTitle(localItem?.title ?? "");
+    setTagNames(localItem?.tags.map((tag) => tag.name) ?? []);
     setDraftSegments(cloneSegments(localItem?.transcript?.segments ?? null));
   }, [localItem]);
 
@@ -130,6 +136,31 @@ export function ItemDetail({
     }
   }
 
+  async function persistTagNames(nextTagNames: string[]) {
+    if (isSavingTags) {
+      return;
+    }
+
+    const normalizedCurrent = currentItem.tags.map((tag) => tag.name).sort().join(",");
+    const normalizedNext = [...nextTagNames].sort().join(",");
+    setTagNames(nextTagNames);
+    if (normalizedCurrent === normalizedNext) {
+      return;
+    }
+
+    setIsSavingTags(true);
+    try {
+      const updated = await window.voiceNoter.items.updateItemMetadata(currentItem.id, {
+        tagNames: nextTagNames,
+      });
+      setLocalItem(updated);
+      onItemUpdated?.(updated);
+      onReload();
+    } finally {
+      setIsSavingTags(false);
+    }
+  }
+
   function cancelTranscriptDraft() {
     setDraftSegments(cloneSegments(currentItem.transcript?.segments ?? null));
   }
@@ -155,6 +186,25 @@ export function ItemDetail({
       </div>
       <div className="grid min-h-0 flex-1 gap-4 overflow-auto p-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <div className="space-y-4">
+          <Panel className="p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium">Tags</div>
+                <div className="text-xs text-muted-foreground">Type tags separated by commas. Existing tags autocomplete as you type.</div>
+              </div>
+              {isSavingTags ? <div className="text-xs text-muted-foreground">Saving...</div> : null}
+            </div>
+            <TagInput
+              disabled={isSavingTags}
+              placeholder="follow up, customer, meeting"
+              suggestions={availableTagNames}
+              value={tagNames}
+              onChange={(nextValue) => {
+                void persistTagNames(nextValue);
+              }}
+            />
+          </Panel>
+
           <Panel className="p-4">
             {currentItem.sourceType === "video" ? (
               <video

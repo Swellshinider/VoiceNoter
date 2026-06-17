@@ -297,6 +297,78 @@ const migrations: Migration[] = [
       db.pragma("foreign_keys = ON");
     },
   },
+  {
+    id: 3,
+    apply: (db) => {
+      const tagRows = db
+        .prepare("SELECT id, name, created_at FROM tags ORDER BY datetime(created_at) ASC, rowid ASC")
+        .all() as Array<{ id: string; name: string; created_at: string }>;
+      const assignments = db.prepare("SELECT item_id, tag_id FROM item_tags").all() as Array<{ item_id: string; tag_id: string }>;
+
+      const canonicalTags = new Map<string, { id: string; name: string; created_at: string }>();
+      const canonicalBySourceId = new Map<string, { id: string; name: string; created_at: string }>();
+
+      for (const row of tagRows) {
+        const normalized = normalizeTagName(row.name);
+        if (!normalized) {
+          continue;
+        }
+        const existing = canonicalTags.get(normalized);
+        if (existing) {
+          canonicalBySourceId.set(row.id, existing);
+          continue;
+        }
+        const canonical = {
+          id: row.id,
+          name: normalized,
+          created_at: row.created_at,
+        };
+        canonicalTags.set(normalized, canonical);
+        canonicalBySourceId.set(row.id, canonical);
+      }
+
+      db.pragma("foreign_keys = OFF");
+      db.exec(`
+        CREATE TABLE tags_new (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE item_tags_new (
+          item_id TEXT NOT NULL,
+          tag_id TEXT NOT NULL,
+          PRIMARY KEY (item_id, tag_id),
+          FOREIGN KEY (item_id) REFERENCES items(id),
+          FOREIGN KEY (tag_id) REFERENCES tags(id)
+        );
+      `);
+
+      const insertTag = db.prepare("INSERT INTO tags_new (id, name, created_at) VALUES (?, ?, ?)");
+      for (const tag of canonicalTags.values()) {
+        insertTag.run(tag.id, tag.name, tag.created_at);
+      }
+
+      const insertAssignment = db.prepare("INSERT OR IGNORE INTO item_tags_new (item_id, tag_id) VALUES (?, ?)");
+      for (const assignment of assignments) {
+        const canonical = canonicalBySourceId.get(assignment.tag_id);
+        if (!canonical) {
+          continue;
+        }
+        insertAssignment.run(assignment.item_id, canonical.id);
+      }
+
+      db.exec(`
+        DROP TABLE item_tags;
+        DROP TABLE tags;
+        ALTER TABLE tags_new RENAME TO tags;
+        ALTER TABLE item_tags_new RENAME TO item_tags;
+      `);
+      db.pragma("foreign_keys = ON");
+
+      rewriteNoteFrontmatterTags(db);
+    },
+  },
 ];
 
 function rewriteLegacyCategoryNotes(db: VoiceNoterDatabase, databasePath: string): void {
@@ -367,4 +439,45 @@ function stripCategoryLine(markdown: string, legacyCategory?: string): string {
 
 function hashContent(content: string): string {
   return createHash("sha256").update(content).digest("hex");
+}
+
+function normalizeTagName(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function rewriteNoteFrontmatterTags(db: VoiceNoterDatabase): void {
+  const rows = db
+    .prepare(
+      `
+        SELECT notes.item_id, notes.frontmatter_json
+        FROM notes
+      `,
+    )
+    .all() as Array<{
+    item_id: string;
+    frontmatter_json: string;
+  }>;
+
+  const update = db.prepare("UPDATE notes SET frontmatter_json = ?, updated_at = ? WHERE item_id = ?");
+  const now = new Date().toISOString();
+
+  for (const row of rows) {
+    const tags = (
+      db
+        .prepare(
+          `
+            SELECT tags.name
+            FROM tags
+            INNER JOIN item_tags ON item_tags.tag_id = tags.id
+            WHERE item_tags.item_id = ?
+            ORDER BY tags.name
+          `,
+        )
+        .all(row.item_id) as Array<{ name: string }>
+    ).map((tag) => tag.name);
+
+    const frontmatter = JSON.parse(row.frontmatter_json) as Record<string, unknown>;
+    frontmatter.tags = tags;
+    update.run(JSON.stringify(frontmatter), now, row.item_id);
+  }
 }

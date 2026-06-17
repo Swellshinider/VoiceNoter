@@ -11,6 +11,7 @@ export const supportedMediaExtensions = new Set([
 
 export const modelIdSchema = z.enum(["tiny", "base", "small"]);
 export const itemIdSchema = z.string().trim().min(1);
+export const tagIdSchema = z.string().trim().min(1);
 export const jobIdSchema = z.string().trim().min(1);
 export const libraryPathSchema = z.string().trim().min(1);
 export const markdownSchema = z.string();
@@ -36,7 +37,7 @@ export const pageRequestSchema = z
 export const itemListQuerySchema = pageRequestSchema
   .extend({
     view: z.enum(["all", "tag"]).optional(),
-    tagId: z.string().trim().min(1).optional(),
+    tagIds: z.array(z.string().trim().min(1)).optional(),
   })
   .strict();
 export const queueListQuerySchema = pageRequestSchema
@@ -47,15 +48,18 @@ export const queueListQuerySchema = pageRequestSchema
 export const searchQuerySchema = pageRequestSchema
   .extend({
     text: z.string().trim().min(1),
-    tagId: z.string().trim().min(1).optional(),
+    tagIds: z.array(z.string().trim().min(1)).optional(),
   })
   .strict();
 export const itemMetadataUpdateSchema = z
   .object({
     title: z.string().trim().min(1).optional(),
-    tagIds: z.array(z.string().trim().min(1)).optional(),
+    tagNames: z.array(z.string().trim().min(1)).optional(),
   })
   .strict();
+export const tagNameSchema = z.string().trim().min(1);
+export const tagNamesSchema = z.array(tagNameSchema);
+export const itemIdsSchema = z.array(itemIdSchema);
 export const librarySettingsPatchSchema = z
   .object({
     transcriptionLanguage: z.string().trim().min(1).optional(),

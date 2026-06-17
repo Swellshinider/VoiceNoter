@@ -1,7 +1,5 @@
-import { randomUUID } from "node:crypto";
 import { createMediaUrl } from "../media-protocol";
 import type {
-  CountedTag,
   ItemDetail,
   ItemFacets,
   ItemListQuery,
@@ -11,6 +9,7 @@ import type {
   Tag,
 } from "../../shared/types";
 import type { VoiceNoterDatabase } from "./database";
+import { listTags } from "./tags";
 
 export type ItemRow = {
   id: string;
@@ -79,19 +78,7 @@ export function listItemSummaries(db: VoiceNoterDatabase, query: ItemListQuery =
 }
 
 export function getItemFacets(db: VoiceNoterDatabase): ItemFacets {
-  const tags = db
-    .prepare(
-      `
-        SELECT tags.id, tags.name, COUNT(item_tags.item_id) AS itemCount
-        FROM tags
-        INNER JOIN item_tags ON item_tags.tag_id = tags.id
-        GROUP BY tags.id, tags.name
-        ORDER BY tags.name
-      `,
-    )
-    .all() as CountedTag[];
-
-  return { tags };
+  return { tags: listTags(db).filter((tag) => tag.itemCount > 0) };
 }
 
 export function mapItemSummary(db: VoiceNoterDatabase, row: ItemRow, tags = getItemTags(db, row.id)): ItemSummary {
@@ -157,23 +144,13 @@ function getItemTagsByItemIds(db: VoiceNoterDatabase, itemIds: string[]): Map<st
   return grouped;
 }
 
-export function getOrCreateTag(db: VoiceNoterDatabase, name: string): Tag {
-  const normalized = name.trim();
-  const existing = db.prepare("SELECT id, name FROM tags WHERE name = ?").get(normalized) as Tag | undefined;
-  if (existing) {
-    return existing;
-  }
-  const id = randomUUID();
-  db.prepare("INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)").run(id, normalized, new Date().toISOString());
-  return { id, name: normalized };
-}
-
 function buildItemWhereClause(query: ItemListQuery): { whereClause: string; params: unknown[] } {
   const clauses: string[] = [];
   const params: unknown[] = [];
-  if (query.view === "tag" && query.tagId) {
-    clauses.push("items.id IN (SELECT item_id FROM item_tags WHERE tag_id = ?)");
-    params.push(query.tagId);
+  if (query.view === "tag" && query.tagIds && query.tagIds.length > 0) {
+    const placeholders = query.tagIds.map(() => "?").join(", ");
+    clauses.push(`items.id IN (SELECT DISTINCT item_id FROM item_tags WHERE tag_id IN (${placeholders}))`);
+    params.push(...query.tagIds);
   }
   return {
     whereClause: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "",
