@@ -1,13 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { createMediaUrl } from "../media-protocol";
 import type {
-  Category,
-  CountedCategory,
   CountedTag,
   ItemDetail,
   ItemFacets,
   ItemListQuery,
-  ItemMetadataUpdate,
   ItemSummary,
   PageResult,
   SourceType,
@@ -23,8 +20,6 @@ export type ItemRow = {
   library_media_path: string;
   extracted_audio_path: string | null;
   note_path: string | null;
-  category_id: string | null;
-  category_name: string | null;
   duration_seconds: number | null;
   language: string | null;
   status: ItemSummary["status"];
@@ -37,16 +32,7 @@ const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
 
 export function getItemSummary(db: VoiceNoterDatabase, itemId: string): ItemSummary {
-  const row = db
-    .prepare(
-      `
-        SELECT items.*, categories.name AS category_name
-        FROM items
-        LEFT JOIN categories ON categories.id = items.category_id
-        WHERE items.id = ?
-      `,
-    )
-    .get(itemId) as ItemRow | undefined;
+  const row = db.prepare("SELECT * FROM items WHERE id = ?").get(itemId) as ItemRow | undefined;
 
   if (!row) {
     throw new Error(`Item not found: ${itemId}`);
@@ -72,11 +58,10 @@ export function listItemSummaries(db: VoiceNoterDatabase, query: ItemListQuery =
   const rows = db
     .prepare(
       `
-        SELECT items.*, categories.name AS category_name
+        SELECT *
         FROM items
-        LEFT JOIN categories ON categories.id = items.category_id
         ${whereClause}
-        ORDER BY datetime(items.imported_at) DESC, items.rowid DESC
+        ORDER BY datetime(imported_at) DESC, rowid DESC
         LIMIT ? OFFSET ?
       `,
     )
@@ -94,18 +79,6 @@ export function listItemSummaries(db: VoiceNoterDatabase, query: ItemListQuery =
 }
 
 export function getItemFacets(db: VoiceNoterDatabase): ItemFacets {
-  const categories = db
-    .prepare(
-      `
-        SELECT categories.id, categories.name, COUNT(items.id) AS itemCount
-        FROM categories
-        INNER JOIN items ON items.category_id = categories.id
-        GROUP BY categories.id, categories.name
-        ORDER BY categories.name
-      `,
-    )
-    .all() as CountedCategory[];
-
   const tags = db
     .prepare(
       `
@@ -118,7 +91,7 @@ export function getItemFacets(db: VoiceNoterDatabase): ItemFacets {
     )
     .all() as CountedTag[];
 
-  return { categories, tags };
+  return { tags };
 }
 
 export function mapItemSummary(db: VoiceNoterDatabase, row: ItemRow, tags = getItemTags(db, row.id)): ItemSummary {
@@ -129,7 +102,6 @@ export function mapItemSummary(db: VoiceNoterDatabase, row: ItemRow, tags = getI
     status: row.status,
     notePath: row.note_path,
     durationSeconds: row.duration_seconds,
-    category: row.category_id ? { id: row.category_id, name: row.category_name ?? "" } : null,
     tags,
     importedAt: row.imported_at,
     updatedAt: row.updated_at,
@@ -185,17 +157,6 @@ function getItemTagsByItemIds(db: VoiceNoterDatabase, itemIds: string[]): Map<st
   return grouped;
 }
 
-export function getOrCreateCategory(db: VoiceNoterDatabase, name: string): Category {
-  const normalized = name.trim();
-  const existing = db.prepare("SELECT id, name FROM categories WHERE name = ?").get(normalized) as Category | undefined;
-  if (existing) {
-    return existing;
-  }
-  const id = randomUUID();
-  db.prepare("INSERT INTO categories (id, name, created_at) VALUES (?, ?, ?)").run(id, normalized, new Date().toISOString());
-  return { id, name: normalized };
-}
-
 export function getOrCreateTag(db: VoiceNoterDatabase, name: string): Tag {
   const normalized = name.trim();
   const existing = db.prepare("SELECT id, name FROM tags WHERE name = ?").get(normalized) as Tag | undefined;
@@ -210,13 +171,6 @@ export function getOrCreateTag(db: VoiceNoterDatabase, name: string): Tag {
 function buildItemWhereClause(query: ItemListQuery): { whereClause: string; params: unknown[] } {
   const clauses: string[] = [];
   const params: unknown[] = [];
-  if (query.view === "inbox") {
-    clauses.push("items.status != 'ready'");
-  }
-  if (query.view === "category" && query.categoryId) {
-    clauses.push("items.category_id = ?");
-    params.push(query.categoryId);
-  }
   if (query.view === "tag" && query.tagId) {
     clauses.push("items.id IN (SELECT item_id FROM item_tags WHERE tag_id = ?)");
     params.push(query.tagId);

@@ -13,7 +13,7 @@ describe("QueueService", () => {
     const { db } = await createLibraryWithImportedItem();
     try {
       const queue = new QueueService(db);
-      const [inspectJob, transcribeJob] = await queue.listJobs().then((page) => page.items).then((jobs) => [
+      const [inspectJob, transcribeJob] = await listJobsFlat(queue).then((jobs) => [
         jobs.find((job) => job.type === "inspect_media")!,
         jobs.find((job) => job.type === "transcribe")!,
       ]);
@@ -23,7 +23,7 @@ describe("QueueService", () => {
         retryable: true,
       }));
 
-      expect((await queue.listJobs()).items.find((job) => job.id === inspectJob.id)).toEqual(
+      expect((await listJobsFlat(queue)).find((job) => job.id === inspectJob.id)).toEqual(
         expect.objectContaining({
           status: "failed",
           error: expect.objectContaining({ title: "FFmpeg execution failed", retryable: true }),
@@ -45,7 +45,7 @@ describe("QueueService", () => {
     const { db } = await createLibraryWithImportedItem();
     try {
       const queue = new QueueService(db);
-      const inspectJob = (await queue.listJobs()).items.find((job) => job.type === "inspect_media")!;
+      const inspectJob = (await listJobsFlat(queue)).find((job) => job.type === "inspect_media")!;
 
       queue.failJob(inspectJob.id, userError("FFmpeg execution failed", "The bundled media process exited with code 1.", {
         retryable: true,
@@ -59,7 +59,7 @@ describe("QueueService", () => {
         { type: "generate_markdown", status: "failed" },
         { type: "index_note", status: "failed" },
       ]);
-      const downstream = (await queue.listJobs()).items.filter((job) => job.type !== "import_file" && job.type !== "inspect_media");
+      const downstream = (await listJobsFlat(queue)).filter((job) => job.type !== "import_file" && job.type !== "inspect_media");
       expect(downstream).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -85,7 +85,7 @@ describe("QueueService", () => {
     const { db } = await createLibraryWithImportedItem();
     try {
       const queue = new QueueService(db);
-      const inspectJob = (await queue.listJobs()).items.find((job) => job.type === "inspect_media")!;
+      const inspectJob = (await listJobsFlat(queue)).find((job) => job.type === "inspect_media")!;
 
       await queue.cancelJob(inspectJob.id);
 
@@ -115,7 +115,7 @@ describe("QueueService", () => {
         `,
       ).run(JSON.stringify(userError("Previous processing step failed", "A previous step failed.", { retryable: true })), now, now);
       const queue = new QueueService(db);
-      const inspectJob = (await queue.listJobs()).items.find((job) => job.type === "inspect_media")!;
+      const inspectJob = (await listJobsFlat(queue)).find((job) => job.type === "inspect_media")!;
 
       await queue.retryJob(inspectJob.id);
 
@@ -136,13 +136,13 @@ describe("QueueService", () => {
     const { db } = await createLibraryWithImportedItem();
     try {
       const queue = new QueueService(db);
-      const inspectJob = (await queue.listJobs()).items.find((job) => job.type === "inspect_media")!;
+      const inspectJob = (await listJobsFlat(queue)).find((job) => job.type === "inspect_media")!;
       queue.startJob(inspectJob.id);
 
       const recovered = queue.recoverUnfinishedJobs();
 
       expect(recovered).toHaveLength(1);
-      expect((await queue.listJobs()).items.find((job) => job.id === inspectJob.id)).toEqual(
+      expect((await listJobsFlat(queue)).find((job) => job.id === inspectJob.id)).toEqual(
         expect.objectContaining({ status: "pending", startedAt: null }),
       );
     } finally {
@@ -154,16 +154,52 @@ describe("QueueService", () => {
     const { db } = await createLibraryWithImportedItem();
     try {
       const queue = new QueueService(db);
+      db.prepare(
+        `
+          INSERT INTO jobs (
+            id, item_id, type, status, payload_json, progress, error_message, created_at, started_at, completed_at
+          )
+          VALUES ('job-system-1', NULL, 'download_model', 'pending', '{}', 0, NULL, ?, NULL, NULL)
+        `,
+      ).run(new Date().toISOString());
 
-      const firstPage = await queue.listJobs({ limit: 2, offset: 0 });
-      const secondPage = await queue.listJobs({ limit: 2, offset: 2 });
+      const firstPage = await (queue as unknown as {
+        listJobs(query?: { limit?: number; offset?: number }): Promise<{
+          items: Array<{ kind: string; label: string; jobs: Array<{ type: string }> }>;
+          total: number;
+          limit: number;
+          offset: number;
+          nextOffset: number | null;
+        }>;
+      }).listJobs({ limit: 1, offset: 0 });
+      const secondPage = await (queue as unknown as {
+        listJobs(query?: { limit?: number; offset?: number }): Promise<{
+          items: Array<{ kind: string; label: string; jobs: Array<{ type: string }> }>;
+          total: number;
+          limit: number;
+          offset: number;
+          nextOffset: number | null;
+        }>;
+      }).listJobs({ limit: 1, offset: 1 });
       const summary = await queue.getSummary();
 
       expect(firstPage.total).toBeGreaterThan(0);
-      expect(firstPage.items).toHaveLength(2);
-      expect(firstPage.nextOffset).toBe(2);
-      expect(secondPage.offset).toBe(2);
-      expect(summary.totalJobs).toBe(firstPage.total);
+      expect(firstPage.items).toHaveLength(1);
+      expect(firstPage.items[0]).toMatchObject({
+        kind: "item",
+        label: "Lecture One",
+        jobs: [
+          { type: "import_file" },
+          { type: "inspect_media" },
+          { type: "transcribe" },
+          { type: "generate_markdown" },
+          { type: "index_note" },
+        ],
+      });
+      expect(firstPage.nextOffset).toBe(1);
+      expect(secondPage.offset).toBe(1);
+      expect(firstPage.total).toBe(2);
+      expect(summary.totalJobs).toBeGreaterThan(firstPage.total);
       expect(summary.pendingJobs).toBeGreaterThan(0);
       expect(summary.activeJobs).toBeGreaterThan(0);
     } finally {
@@ -181,4 +217,13 @@ async function createLibraryWithImportedItem() {
   const db = openVoiceNoterDatabase(join(libraryRoot, "voicenoter.db"));
   await new ImportService(libraryRoot, db).importFiles([mediaPath]);
   return { db, libraryRoot };
+}
+
+async function listJobsFlat(queue: QueueService): Promise<ReturnType<typeof flattenGroups>> {
+  const page = await queue.listJobs();
+  return flattenGroups(page.items as Array<{ jobs: ReturnType<typeof flattenGroups> }>);
+}
+
+function flattenGroups(groups: Array<{ jobs: { id: string; itemId: string | null; type: string; status: string; progress: number; error: unknown; createdAt: string; startedAt: string | null; completedAt: string | null }[] }>) {
+  return groups.flatMap((group) => group.jobs);
 }

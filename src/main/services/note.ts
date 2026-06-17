@@ -5,7 +5,7 @@ import matter from "gray-matter";
 import type { ModelId, NoteContent, Transcript, TranscriptSegment } from "../../shared/types";
 import type { VoiceNoterDatabase } from "./database";
 import type { ItemRow } from "./items";
-import { getOrCreateCategory, getOrCreateTag } from "./items";
+import { getOrCreateTag } from "./items";
 
 type TranscriptRow = {
   id: string;
@@ -40,7 +40,6 @@ export class NoteService {
       duration_seconds: item.duration_seconds ?? 0,
       type: item.source_type,
       language: transcript?.language ?? "auto",
-      category: "",
       tags: [] as string[],
       transcription_engine: "local-whisper-compatible",
       transcription_model: transcriptionModel,
@@ -100,25 +99,21 @@ export class NoteService {
   async saveNote(itemId: string, markdown: string): Promise<NoteContent> {
     const existing = this.getNoteRow(itemId);
     const parsed = matter(markdown);
-    const frontmatter = parsed.data as Record<string, unknown>;
-    const title = typeof frontmatter.title === "string" && frontmatter.title.trim() ? frontmatter.title.trim() : existing.title;
-    const categoryName = typeof frontmatter.category === "string" ? frontmatter.category.trim() : "";
-    const tagNames = Array.isArray(frontmatter.tags)
-      ? frontmatter.tags.filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
-      : [];
-    const now = new Date().toISOString();
-    const contentHash = hashContent(markdown);
+    const legacyCategory = typeof parsed.data.category === "string" ? parsed.data.category.trim() : "";
+    delete parsed.data.category;
 
-    await writeFile(existing.path, markdown, "utf8");
+    const title = typeof parsed.data.title === "string" && parsed.data.title.trim() ? parsed.data.title.trim() : existing.title;
+    const tagNames = Array.isArray(parsed.data.tags)
+      ? parsed.data.tags.filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
+      : [];
+    const sanitizedMarkdown = stripCategoryFromMarkdown(markdown, legacyCategory || undefined);
+    const now = new Date().toISOString();
+    const contentHash = hashContent(sanitizedMarkdown);
+
+    await writeFile(existing.path, sanitizedMarkdown, "utf8");
 
     const save = this.db.transaction(() => {
-      let categoryId: string | null = null;
-      if (categoryName) {
-        categoryId = getOrCreateCategory(this.db, categoryName).id;
-      }
-      this.db
-        .prepare("UPDATE items SET title = ?, category_id = ?, updated_at = ? WHERE id = ?")
-        .run(title, categoryId, now, itemId);
+      this.db.prepare("UPDATE items SET title = ?, updated_at = ? WHERE id = ?").run(title, now, itemId);
       this.db.prepare("DELETE FROM item_tags WHERE item_id = ?").run(itemId);
       for (const tagName of tagNames) {
         const tag = getOrCreateTag(this.db, tagName);
@@ -126,15 +121,15 @@ export class NoteService {
       }
       this.db
         .prepare("UPDATE notes SET title = ?, frontmatter_json = ?, content_hash = ?, updated_at = ? WHERE item_id = ?")
-        .run(title, JSON.stringify(frontmatter), contentHash, now, itemId);
+        .run(title, JSON.stringify(parsed.data), contentHash, now, itemId);
     });
     save();
 
     return {
       itemId,
       path: existing.path,
-      markdown,
-      frontmatter,
+      markdown: sanitizedMarkdown,
+      frontmatter: parsed.data as Record<string, unknown>,
       contentHash,
       updatedAt: now,
     };
@@ -166,16 +161,7 @@ export class NoteService {
   }
 
   private getItemRow(itemId: string): ItemRow {
-    const row = this.db
-      .prepare(
-        `
-          SELECT items.*, categories.name AS category_name
-          FROM items
-          LEFT JOIN categories ON categories.id = items.category_id
-          WHERE items.id = ?
-        `,
-      )
-      .get(itemId) as ItemRow | undefined;
+    const row = this.db.prepare("SELECT * FROM items WHERE id = ?").get(itemId) as ItemRow | undefined;
     if (!row) {
       throw new Error(`Item not found: ${itemId}`);
     }
@@ -251,7 +237,6 @@ library_media_path: "${escapeYaml(String(frontmatter.library_media_path))}"
 duration_seconds: ${frontmatter.duration_seconds}
 type: "${escapeYaml(String(frontmatter.type))}"
 language: "${escapeYaml(String(frontmatter.language))}"
-category: ""
 tags: []
 transcription_engine: "local-whisper-compatible"
 transcription_model: "${escapeYaml(String(frontmatter.transcription_model))}"
@@ -270,6 +255,33 @@ Summary not generated in VoiceNoter V1.
 
 ${renderTranscript(segments)}
 `;
+}
+
+export function stripCategoryFromMarkdown(markdown: string, legacyCategory?: string): string {
+  const normalized = markdown.replace(/\r\n/g, "\n");
+  const categoryName = legacyCategory?.trim();
+  const legacyComment = categoryName ? `<!-- Legacy category: ${categoryName} -->` : "";
+
+  if (!normalized.startsWith("---\n")) {
+    if (!legacyComment || normalized.includes(legacyComment)) {
+      return normalized;
+    }
+    return `${legacyComment}\n\n${normalized}`.trimEnd() + "\n";
+  }
+
+  const closingIndex = normalized.indexOf("\n---\n", 4);
+  if (closingIndex === -1) {
+    return normalized;
+  }
+
+  const frontmatterBlock = normalized.slice(4, closingIndex);
+  const frontmatterLines = frontmatterBlock
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("category:"));
+  const body = normalized.slice(closingIndex + 5).replace(/^\n*/, "");
+  const commentBlock = legacyComment && !body.includes(legacyComment) ? `${legacyComment}\n\n` : "";
+
+  return `---\n${frontmatterLines.join("\n")}\n---\n\n${commentBlock}${body}`.trimEnd() + "\n";
 }
 
 function renderTranscript(segments: TranscriptSegment[]): string {

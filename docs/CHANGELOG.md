@@ -10,7 +10,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Add a `pnpm bootstrap` flow so new developers can install dependencies, build whisper.cpp, and prepare Electron in one step
 - Rewrite the README development section as a first-run guide with in-app model setup and troubleshooting steps
-- Convert `All Items` and `Search Results` into list-only views and open media playback plus transcript correction in a dedicated focus page
+- Keep `All Items` as the single list surface, run submitted text searches inside it, and preserve active tag filters while moving in and out of the focus page
+- Rename `Processing Queue` to `Processing Status` and group queue entries into per-item cards plus a `System Tasks` section
+- Remove categories from app behavior and storage, migrate legacy note frontmatter to a preserved legacy comment, and rebuild search/index state without category matches
 - Require selecting a transcription model before import, land libraries without one on `Model Manager`, and block drag-drop plus header imports until selection succeeds
 
 ### Fixed

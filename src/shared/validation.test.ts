@@ -57,7 +57,11 @@ describe("ipc validation schemas", () => {
       status: ["failed"],
     });
     expect(itemListQuerySchema.parse({ view: "tag", tagId: "tag-1" })).toEqual({ view: "tag", tagId: "tag-1" });
-    expect(searchQuerySchema.parse({ text: "hello world", limit: 25 })).toEqual({ text: "hello world", limit: 25 });
+    expect(searchQuerySchema.parse({ text: "hello world", limit: 25, tagId: "tag-1" })).toEqual({
+      text: "hello world",
+      limit: 25,
+      tagId: "tag-1",
+    });
     expect(itemMetadataUpdateSchema.parse({ title: "Updated", tagIds: ["tag-1"] })).toEqual({ title: "Updated", tagIds: ["tag-1"] });
     expect(
       transcriptUpdateSchema.parse({
@@ -76,6 +80,12 @@ describe("ipc validation schemas", () => {
       theme: "dark",
       transcriptionLanguage: "auto",
     });
+  });
+
+  test("rejects category-based list, search, and metadata payloads", () => {
+    expect(() => itemListQuerySchema.parse({ view: "category", categoryId: "cat-1" })).toThrow();
+    expect(() => searchQuerySchema.parse({ text: "hello world", categoryId: "cat-1" })).toThrow();
+    expect(() => itemMetadataUpdateSchema.parse({ categoryId: "cat-1" })).toThrow();
   });
 
   test("rejects transcript updates with blank segment text", () => {

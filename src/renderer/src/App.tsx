@@ -13,6 +13,7 @@ import type {
   LibraryState,
   ModelInfo,
   PageResult,
+  ProcessingStatusGroup,
   QueueSummary,
   SearchResult,
 } from "../../shared/types";
@@ -57,13 +58,14 @@ export function App() {
   const [facets, setFacets] = useState<ItemFacets | null>(null);
   const [queueSummary, setQueueSummary] = useState<QueueSummary | null>(null);
   const [itemsState, setItemsState] = useState<PagedState<ItemSummary>>(createPagedState<ItemSummary>());
-  const [queueState, setQueueState] = useState<PagedState<Job>>(createPagedState<Job>());
+  const [queueState, setQueueState] = useState<PagedState<ProcessingStatusGroup>>(createPagedState<ProcessingStatusGroup>());
   const [searchState, setSearchState] = useState<PagedState<SearchResult>>(createPagedState<SearchResult>());
   const [view, setView] = useState<ViewKey>("dashboard");
   const [focusState, setFocusState] = useState<FocusState | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<AsyncState<ItemDetail>>({ value: null, isLoading: false });
   const [searchText, setSearchText] = useState("");
+  const [submittedSearchText, setSubmittedSearchText] = useState("");
   const [jumpToSeconds, setJumpToSeconds] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState("Loading...");
   const [activeFilter, setActiveFilter] = useState<FilterState>(null);
@@ -75,7 +77,7 @@ export function App() {
   const viewRef = useRef<ViewKey>(view);
   const activeFilterRef = useRef<FilterState>(activeFilter);
   const itemsPageRef = useRef<PageResult<ItemSummary> | null>(itemsState.page);
-  const queuePageRef = useRef<PageResult<Job> | null>(queueState.page);
+  const queuePageRef = useRef<PageResult<ProcessingStatusGroup> | null>(queueState.page);
 
   const themePreference = settings?.theme ?? "dark";
   const resolvedTheme = themePreference === "system" ? systemTheme : themePreference;
@@ -101,9 +103,10 @@ export function App() {
       setFacets(null);
       setQueueSummary(null);
       setItemsState(createPagedState<ItemSummary>());
-      setQueueState(createPagedState<Job>());
+      setQueueState(createPagedState<ProcessingStatusGroup>());
       setSearchState(createPagedState<SearchResult>());
       setSelectedItem({ value: null, isLoading: false });
+      setSubmittedSearchText("");
       setStatusMessage("Choose a library to begin.");
       return;
     }
@@ -158,11 +161,9 @@ export function App() {
       setItemsState((previous) => ({ ...previous, isLoading: !append, isLoadingMore: append }));
       try {
         const query =
-          activeFilterRef.current?.type === "category"
-            ? { view: "category" as const, categoryId: activeFilterRef.current.id, limit, offset }
-            : activeFilterRef.current?.type === "tag"
-              ? { view: "tag" as const, tagId: activeFilterRef.current.id, limit, offset }
-              : { view: "all" as const, limit, offset };
+          activeFilterRef.current?.type === "tag"
+            ? { view: "tag" as const, tagId: activeFilterRef.current.id, limit, offset }
+            : { view: "all" as const, limit, offset };
         const page = await window.voiceNoter.items.listItems(query);
         startTransition(() => {
           setItemsState((previous) => ({
@@ -190,8 +191,10 @@ export function App() {
             ...previous,
             page: mergePageResults(previous.page, page, append),
           }));
-          for (const job of page.items) {
-            previousJobStatusesRef.current.set(job.id, job.status);
+          for (const group of page.items) {
+            for (const job of group.jobs) {
+              previousJobStatusesRef.current.set(job.id, job.status);
+            }
           }
         });
       } finally {
@@ -206,14 +209,19 @@ export function App() {
       if (!library) {
         return;
       }
-      const text = searchText.trim();
+      const text = submittedSearchText.trim();
       if (!text) {
         setSearchState(createPagedState<SearchResult>());
         return;
       }
       setSearchState((previous) => ({ ...previous, isLoading: !append, isLoadingMore: append }));
       try {
-        const page = await window.voiceNoter.search.search({ text, limit, offset });
+        const page = await window.voiceNoter.search.search({
+          text,
+          tagId: activeFilterRef.current?.type === "tag" ? activeFilterRef.current.id : undefined,
+          limit,
+          offset,
+        });
         startTransition(() => {
           setSearchState((previous) => ({
             ...previous,
@@ -224,7 +232,7 @@ export function App() {
         setSearchState((previous) => ({ ...previous, isLoading: false, isLoadingMore: false }));
       }
     },
-    [library, searchText],
+    [library, submittedSearchText],
   );
 
   const refreshSelectedItemById = useCallback(async (itemId: string) => {
@@ -251,13 +259,15 @@ export function App() {
 
   const reloadSelectedItemAndVisibleList = useCallback(async () => {
     await refreshSelectedItem();
-    if (viewRef.current === "all" && itemsPageRef.current) {
+    if (viewRef.current === "all" && submittedSearchText) {
+      await loadSearchPage({ offset: 0, limit: PAGE_SIZE });
+    } else if (viewRef.current === "all" && itemsPageRef.current) {
       await loadItemsPage({ offset: 0, limit: Math.min(itemsPageRef.current.items.length, MAX_ITEM_REFRESH) });
     }
     if (viewRef.current === "queue" && queuePageRef.current) {
       await loadQueuePage({ offset: 0, limit: Math.min(queuePageRef.current.items.length, MAX_QUEUE_REFRESH) });
     }
-  }, [loadItemsPage, loadQueuePage, refreshSelectedItem]);
+  }, [loadItemsPage, loadQueuePage, loadSearchPage, refreshSelectedItem, submittedSearchText]);
 
   useEffect(() => {
     selectedItemIdRef.current = selectedItemId;
@@ -301,13 +311,26 @@ export function App() {
     if (view === "dashboard" && dashboardSummary && !dashboardStorage.value && !dashboardStorage.isLoading) {
       void loadDashboardStorage();
     }
-    if (view === "all") {
+    if (view === "all" && submittedSearchText) {
+      void loadSearchPage({ offset: 0, limit: PAGE_SIZE });
+    } else if (view === "all") {
       void loadItemsPage({ offset: 0, limit: PAGE_SIZE });
     }
     if (view === "queue") {
       void loadQueuePage({ offset: 0, limit: PAGE_SIZE });
     }
-  }, [dashboardStorage.isLoading, dashboardStorage.value, dashboardSummary, library, loadDashboardStorage, loadItemsPage, loadQueuePage, view]);
+  }, [
+    dashboardStorage.isLoading,
+    dashboardStorage.value,
+    dashboardSummary,
+    library,
+    loadDashboardStorage,
+    loadItemsPage,
+    loadQueuePage,
+    loadSearchPage,
+    submittedSearchText,
+    view,
+  ]);
 
   useEffect(() => {
     if (!library) {
@@ -365,9 +388,10 @@ export function App() {
     setSelectedItem({ value: null, isLoading: false });
     setJumpToSeconds(null);
     setSearchText("");
+    setSubmittedSearchText("");
     setSearchState(createPagedState<SearchResult>());
     setItemsState(createPagedState<ItemSummary>());
-    setQueueState(createPagedState<Job>());
+      setQueueState(createPagedState<ProcessingStatusGroup>());
     setDashboardSummary(null);
     setQueueSummary(null);
     setFacets(null);
@@ -399,6 +423,8 @@ export function App() {
     setView(nextView);
     if (nextView !== "all") {
       setActiveFilter(null);
+      setSubmittedSearchText("");
+      setSearchState(createPagedState<SearchResult>());
     }
   }
 
@@ -454,7 +480,11 @@ export function App() {
           : `Imported ${result.importedItems.length}`,
       );
       if (viewRef.current === "all") {
-        void loadItemsPage({ offset: 0, limit: itemsPageRef.current?.items.length ? itemsPageRef.current.items.length : PAGE_SIZE });
+        if (submittedSearchText) {
+          void loadSearchPage({ offset: 0, limit: PAGE_SIZE });
+        } else {
+          void loadItemsPage({ offset: 0, limit: itemsPageRef.current?.items.length ? itemsPageRef.current.items.length : PAGE_SIZE });
+        }
       }
       await refreshShellData();
       if (result.rejectedFiles.length > 0) {
@@ -473,14 +503,22 @@ export function App() {
       return;
     }
     if (!text) {
+      setSubmittedSearchText("");
       setSearchState(createPagedState<SearchResult>());
-      setView("search");
+      setView("all");
+      setStatusMessage(activeFilterRef.current ? `Showing tag: ${activeFilterRef.current.name}` : "All items");
       return;
     }
     try {
-      const page = await window.voiceNoter.search.search({ text, limit: PAGE_SIZE, offset: 0 });
+      const page = await window.voiceNoter.search.search({
+        text,
+        tagId: activeFilterRef.current?.type === "tag" ? activeFilterRef.current.id : undefined,
+        limit: PAGE_SIZE,
+        offset: 0,
+      });
+      setSubmittedSearchText(text);
       setSearchState({ page, isLoading: false, isLoadingMore: false });
-      setView("search");
+      setView("all");
       setStatusMessage(`${page.total} search results`);
     } catch (error) {
       addToast(normalizeToastError(error, "Search failed", "VoiceNoter could not complete the search."));
@@ -493,12 +531,10 @@ export function App() {
 
   function handleFilterSelect(filter: FilterState) {
     setActiveFilter(filter);
-    if (filter) {
-      if (!closeFocusView()) {
-        return;
-      }
-      setView("all");
+    if (!closeFocusView()) {
+      return;
     }
+    setView("all");
   }
 
   async function handleLoadMoreItems() {
@@ -516,7 +552,7 @@ export function App() {
   }
 
   async function handleLoadMoreSearch() {
-    if (!searchState.page || searchState.page.nextOffset === null) {
+    if (!searchState.page || searchState.page.nextOffset === null || !submittedSearchText) {
       return;
     }
     await loadSearchPage({ offset: searchState.page.nextOffset, limit: PAGE_SIZE, append: true });
@@ -526,10 +562,10 @@ export function App() {
     return <SetupView lastLibraryPath={lastLibraryPath} onChooseLibrary={() => void chooseLibrary()} onOpenLastLibrary={lastLibraryPath ? () => void openLastLibrary() : undefined} />;
   }
 
-  const currentSearchResults = searchState.page?.items ?? [];
-  const searchItems: ItemSummary[] = view === "search" ? currentSearchResults.map(mapSearchResultToItemSummary) : [];
-  const currentItemList = view === "all" ? itemsState.page?.items ?? [] : [];
-  const currentQueueJobs = view === "queue" ? queueState.page?.items ?? [] : [];
+  const currentSearchResults = submittedSearchText ? (searchState.page?.items ?? []) : [];
+  const searchItems: ItemSummary[] = currentSearchResults.map(mapSearchResultToItemSummary);
+  const currentItemList = view === "all" ? (submittedSearchText ? searchItems : itemsState.page?.items ?? []) : [];
+  const currentQueueGroups = view === "queue" ? queueState.page?.items ?? [] : [];
 
   return (
     <div
@@ -590,7 +626,7 @@ export function App() {
           />
         ) : view === "queue" ? (
           <QueueView
-            jobs={currentQueueJobs}
+            groups={currentQueueGroups}
             summary={queueSummary}
             isLoading={queueState.isLoading}
             isLoadingMore={queueState.isLoadingMore}
@@ -671,14 +707,15 @@ export function App() {
           />
         ) : (
           <ItemList
-            items={view === "search" ? searchItems : currentItemList}
+            items={currentItemList}
             selectedItemId={selectedItemId}
             searchResults={currentSearchResults}
+            searchText={submittedSearchText}
             activeFilterLabel={activeFilter?.name}
-            isLoading={view === "search" ? searchState.isLoading : itemsState.isLoading}
-            isLoadingMore={view === "search" ? searchState.isLoadingMore : itemsState.isLoadingMore}
-            hasMore={view === "search" ? searchState.page?.nextOffset !== null : itemsState.page?.nextOffset !== null}
-            onLoadMore={() => void (view === "search" ? handleLoadMoreSearch() : handleLoadMoreItems())}
+            isLoading={submittedSearchText ? searchState.isLoading : itemsState.isLoading}
+            isLoadingMore={submittedSearchText ? searchState.isLoadingMore : itemsState.isLoadingMore}
+            hasMore={submittedSearchText ? searchState.page?.nextOffset !== null : itemsState.page?.nextOffset !== null}
+            onLoadMore={() => void (submittedSearchText ? handleLoadMoreSearch() : handleLoadMoreItems())}
             onSelectItem={(itemId, startSeconds) => openItemFocus(itemId, startSeconds, viewRef.current)}
             fullWidth
           />

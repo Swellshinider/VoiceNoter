@@ -18,6 +18,7 @@ import type {
   ModelDownloadJob,
   ModelInfo,
   NoteContent,
+  ProcessingStatusGroup,
   ProcessingEvent,
   ReindexResult,
   RescanResult,
@@ -238,7 +239,7 @@ export class AppServices {
     return result;
   }
 
-  async listJobs(query: QueueListQuery = {}): Promise<PageResult<Job>> {
+  async listJobs(query: QueueListQuery = {}): Promise<PageResult<ProcessingStatusGroup>> {
     if (!this.db || !this.queue) {
       return { items: [], total: 0, limit: query.limit ?? 50, offset: query.offset ?? 0, nextOffset: null };
     }
@@ -300,10 +301,9 @@ export class AppServices {
     const row = db
       .prepare(
         `
-          SELECT items.*, categories.name AS category_name
+          SELECT *
           FROM items
-          LEFT JOIN categories ON categories.id = items.category_id
-          WHERE items.id = ?
+          WHERE id = ?
         `,
       )
       .get(itemId) as ItemRow | undefined;
@@ -368,17 +368,11 @@ export class AppServices {
     const { db } = this.requireContext();
     const now = new Date().toISOString();
     db.transaction(() => {
-      if (metadata.title !== undefined || metadata.categoryId !== undefined) {
-        const existing = db.prepare("SELECT title, category_id FROM items WHERE id = ?").get(itemId) as {
+      if (metadata.title !== undefined) {
+        const existing = db.prepare("SELECT title FROM items WHERE id = ?").get(itemId) as {
           title: string;
-          category_id: string | null;
         };
-        db.prepare("UPDATE items SET title = ?, category_id = ?, updated_at = ? WHERE id = ?").run(
-          metadata.title ?? existing.title,
-          metadata.categoryId === undefined ? existing.category_id : metadata.categoryId,
-          now,
-          itemId,
-        );
+        db.prepare("UPDATE items SET title = ?, updated_at = ? WHERE id = ?").run(metadata.title ?? existing.title, now, itemId);
       }
       if (metadata.tagIds) {
         db.prepare("DELETE FROM item_tags WHERE item_id = ?").run(itemId);

@@ -5,6 +5,7 @@ import type {
   JobStatus,
   JobType,
   PageResult,
+  ProcessingStatusGroup,
   ProcessingEvent,
   QueueListQuery,
   QueueSummary,
@@ -34,7 +35,7 @@ export class QueueService {
 
   constructor(private readonly db: VoiceNoterDatabase) {}
 
-  async listJobs(query: QueueListQuery = {}): Promise<PageResult<Job>> {
+  async listJobs(query: QueueListQuery = {}): Promise<PageResult<ProcessingStatusGroup>> {
     const { limit, offset } = normalizePageRequest(query);
     const { whereClause, params } = buildWhereClause(query);
 
@@ -42,30 +43,47 @@ export class QueueService {
       .prepare(
         `
           SELECT COUNT(*) AS count
-          FROM jobs
-          ${whereClause}
+          FROM (
+            SELECT COALESCE(item_id, '__system__') AS group_key
+            FROM jobs
+            ${whereClause}
+            GROUP BY COALESCE(item_id, '__system__')
+          )
         `,
       )
       .get(...params) as { count: number };
 
-    const rows = this.db
+    const groupRows = this.db
       .prepare(
         `
-          SELECT *
+          SELECT
+            jobs.item_id,
+            COALESCE(items.title, 'System Tasks') AS label,
+            MAX(datetime(jobs.created_at)) AS latest_created_at
           FROM jobs
+          LEFT JOIN items ON items.id = jobs.item_id
           ${whereClause}
-          ORDER BY datetime(created_at) DESC, rowid DESC
+          GROUP BY jobs.item_id, label
+          ORDER BY datetime(latest_created_at) DESC, label ASC
           LIMIT ? OFFSET ?
         `,
       )
-      .all(...params, limit, offset) as JobRow[];
+      .all(...params, limit, offset) as Array<{
+      item_id: string | null;
+      label: string;
+    }>;
 
     return {
-      items: rows.map(mapJob),
+      items: groupRows.map((groupRow) => ({
+        kind: groupRow.item_id ? "item" : "system",
+        itemId: groupRow.item_id,
+        label: groupRow.label,
+        jobs: this.listGroupJobs(groupRow.item_id, query),
+      })),
       total: totalRow.count,
       limit,
       offset,
-      nextOffset: offset + rows.length < totalRow.count ? offset + rows.length : null,
+      nextOffset: offset + groupRows.length < totalRow.count ? offset + groupRows.length : null,
     };
   }
 
@@ -301,6 +319,23 @@ export class QueueService {
       throw new Error(`Job not found: ${jobId}`);
     }
     return mapJob(row);
+  }
+
+  private listGroupJobs(itemId: string | null, query: QueueListQuery): Job[] {
+    const { whereClause, params } = buildWhereClause(query);
+    const itemClause = itemId ? "jobs.item_id = ?" : "jobs.item_id IS NULL";
+    const combinedWhere = whereClause ? `${whereClause} AND ${itemClause}` : `WHERE ${itemClause}`;
+    const rows = this.db
+      .prepare(
+        `
+          SELECT jobs.*
+          FROM jobs
+          ${combinedWhere}
+          ORDER BY jobs.rowid ASC
+        `,
+      )
+      .all(...params, ...(itemId ? [itemId] : [])) as JobRow[];
+    return rows.map(mapJob);
   }
 }
 

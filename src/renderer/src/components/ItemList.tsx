@@ -6,6 +6,7 @@ export function ItemList({
   items,
   selectedItemId,
   searchResults,
+  searchText,
   activeFilterLabel,
   isLoading,
   isLoadingMore,
@@ -17,6 +18,7 @@ export function ItemList({
   items: ItemSummary[];
   selectedItemId: string | null;
   searchResults: SearchResult[];
+  searchText?: string;
   activeFilterLabel?: string;
   isLoading?: boolean;
   isLoadingMore?: boolean;
@@ -26,10 +28,18 @@ export function ItemList({
   fullWidth?: boolean;
 }) {
   const searchByItem = useMemo(() => new Map(searchResults.map((result) => [result.itemId, result])), [searchResults]);
+  const resultCount = searchText ? searchResults.length : null;
   return (
     <section className={`flex h-full flex-col bg-background ${fullWidth ? "w-full" : "w-80 shrink-0 border-r border-border"}`}>
-      <div className="sticky top-0 z-10 border-b border-border bg-background p-3 text-sm font-medium">
-        {searchResults.length ? "Search Results" : activeFilterLabel ?? "Items"}
+      <div className="sticky top-0 z-10 border-b border-border bg-background p-3">
+        <div className="text-sm font-medium">All Items</div>
+        {activeFilterLabel || searchText ? (
+          <div className="mt-1 text-xs text-muted-foreground">
+            {activeFilterLabel ? `Tag: ${activeFilterLabel}` : null}
+            {activeFilterLabel && searchText ? " · " : null}
+            {searchText ? `${resultCount ?? 0} results for "${searchText}"` : null}
+          </div>
+        ) : null}
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
         <div className="flex flex-col">
@@ -60,7 +70,6 @@ export function ItemList({
                   </div>
                   {result ? <div className="mt-2 line-clamp-2 text-xs text-muted-foreground">{result.snippet}</div> : null}
                   <div className="mt-2 flex flex-wrap gap-1">
-                    {item.category ? <Badge>{item.category.name}</Badge> : null}
                     {item.tags.map((tag) => (
                       <Badge key={tag.id}>{tag.name}</Badge>
                     ))}

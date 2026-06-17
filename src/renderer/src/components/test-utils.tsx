@@ -8,6 +8,7 @@ import type {
   ItemSummary,
   Job,
   PageResult,
+  ProcessingStatusGroup,
   SearchResult,
   VoiceNoterApi,
 } from "../../../shared/types";
@@ -78,7 +79,6 @@ export const mockItemSummary: ItemSummary = {
   status: "ready",
   notePath: "/tmp/notes/test.md",
   durationSeconds: 120,
-  category: null,
   tags: [],
   importedAt: "2026-06-03T00:00:00.000Z",
   updatedAt: "2026-06-03T00:00:00.000Z",
@@ -132,8 +132,15 @@ export const mockJob: Job = {
   completedAt: null,
 };
 
-export const mockQueuePage: PageResult<Job> = {
-  items: [mockJob],
+export const mockQueueGroup: ProcessingStatusGroup = {
+  kind: "item",
+  itemId: "item-1",
+  label: "Test Recording",
+  jobs: [mockJob],
+};
+
+export const mockQueuePage: PageResult<ProcessingStatusGroup> = {
+  items: [mockQueueGroup],
   total: 1,
   limit: 50,
   offset: 0,
@@ -198,7 +205,6 @@ export const mockStorageBreakdown: DashboardStorageBreakdown = {
 };
 
 export const mockItemFacets: ItemFacets = {
-  categories: [{ id: "cat-1", name: "Meetings", itemCount: 2 }],
   tags: [{ id: "tag-1", name: "Follow-up", itemCount: 1 }],
 };
 
