@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased] - 16-06-2026
 
+### Added
+
+- Add a tags workflow with post-import tagging, tag autocomplete plus comma-separated entry, bulk tag assignment/removal, a dedicated `Tag Manager`, and multi-tag filtering across `All Items` and search
+
 ### Changed
 
 - Add a `pnpm bootstrap` flow so new developers can install dependencies, build whisper.cpp, and prepare Electron in one step

@@ -56,13 +56,13 @@ describe("ipc validation schemas", () => {
       offset: 50,
       status: ["failed"],
     });
-    expect(itemListQuerySchema.parse({ view: "tag", tagId: "tag-1" })).toEqual({ view: "tag", tagId: "tag-1" });
-    expect(searchQuerySchema.parse({ text: "hello world", limit: 25, tagId: "tag-1" })).toEqual({
+    expect(itemListQuerySchema.parse({ view: "tag", tagIds: ["tag-1"] })).toEqual({ view: "tag", tagIds: ["tag-1"] });
+    expect(searchQuerySchema.parse({ text: "hello world", limit: 25, tagIds: ["tag-1"] })).toEqual({
       text: "hello world",
       limit: 25,
-      tagId: "tag-1",
+      tagIds: ["tag-1"],
     });
-    expect(itemMetadataUpdateSchema.parse({ title: "Updated", tagIds: ["tag-1"] })).toEqual({ title: "Updated", tagIds: ["tag-1"] });
+    expect(itemMetadataUpdateSchema.parse({ title: "Updated", tagNames: ["follow up"] })).toEqual({ title: "Updated", tagNames: ["follow up"] });
     expect(
       transcriptUpdateSchema.parse({
         segments: [

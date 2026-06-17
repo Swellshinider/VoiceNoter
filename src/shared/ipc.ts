@@ -31,6 +31,14 @@ export const ipcChannels = {
     updateMetadata: "items:updateMetadata",
     updateTranscript: "items:updateTranscript",
   },
+  tags: {
+    list: "tags:list",
+    create: "tags:create",
+    rename: "tags:rename",
+    delete: "tags:delete",
+    assignToItems: "tags:assignToItems",
+    removeFromItems: "tags:removeFromItems",
+  },
   search: {
     search: "search:search",
     reindex: "search:reindex",

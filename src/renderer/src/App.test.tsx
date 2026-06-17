@@ -201,14 +201,14 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("button", { name: /Follow-up/i }));
     await waitFor(() =>
-      expect(window.voiceNoter.items.listItems).toHaveBeenCalledWith(expect.objectContaining({ view: "tag", tagId: "tag-1", limit: 50, offset: 0 })),
+      expect(window.voiceNoter.items.listItems).toHaveBeenCalledWith(expect.objectContaining({ view: "tag", tagIds: ["tag-1"], limit: 50, offset: 0 })),
     );
 
     await user.type(screen.getByPlaceholderText(/Search notes and transcripts/i), "matching text");
     await user.click(screen.getByRole("button", { name: /^Search$/i }));
 
     await waitFor(() =>
-      expect(window.voiceNoter.search.search).toHaveBeenCalledWith(expect.objectContaining({ text: "matching text", tagId: "tag-1", limit: 50, offset: 0 })),
+      expect(window.voiceNoter.search.search).toHaveBeenCalledWith(expect.objectContaining({ text: "matching text", tagIds: ["tag-1"], limit: 50, offset: 0 })),
     );
     expect(screen.queryByRole("button", { name: /^Search Results$/i })).toBeNull();
     expect(screen.getByRole("button", { name: /^All Items$/i })).toBeInTheDocument();
@@ -247,7 +247,7 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("button", { name: /Follow-up/i }));
     await waitFor(() =>
-      expect(window.voiceNoter.items.listItems).toHaveBeenCalledWith(expect.objectContaining({ view: "tag", tagId: "tag-1", limit: 50, offset: 0 })),
+      expect(window.voiceNoter.items.listItems).toHaveBeenCalledWith(expect.objectContaining({ view: "tag", tagIds: ["tag-1"], limit: 50, offset: 0 })),
     );
 
     const searchInput = screen.getByPlaceholderText(/Search notes and transcripts/i);
@@ -259,7 +259,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: /^Search$/i }));
 
     await waitFor(() =>
-      expect(window.voiceNoter.items.listItems).toHaveBeenLastCalledWith(expect.objectContaining({ view: "tag", tagId: "tag-1", limit: 50, offset: 0 })),
+      expect(window.voiceNoter.items.listItems).toHaveBeenLastCalledWith(expect.objectContaining({ view: "tag", tagIds: ["tag-1"], limit: 50, offset: 0 })),
     );
     expect(screen.queryByRole("button", { name: /^Search Results$/i })).toBeNull();
   });
@@ -344,6 +344,72 @@ describe("App", () => {
     await waitFor(() => expect(window.voiceNoter.models.setDefaultModel).toHaveBeenCalledWith("base"));
     await waitFor(() => expect(screen.getByRole("button", { name: /^Import$/i })).toBeEnabled());
     expect(screen.getAllByText("Model Manager").length).toBeGreaterThan(0);
+  });
+
+  it("prompts for tags after import and saves them through the bulk tag API", async () => {
+    const user = userEvent.setup();
+    window.voiceNoter.library.getCurrentLibrary = vi.fn().mockResolvedValue(mockLibraryState);
+    window.voiceNoter.library.getLastLibrary = vi.fn().mockResolvedValue(mockLibraryState.path);
+    window.voiceNoter.queue.getSummary = vi.fn().mockResolvedValue(mockQueueSummary);
+    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ tags: [] });
+    window.voiceNoter.tags.listTags = vi.fn().mockResolvedValue([]);
+    window.voiceNoter.import.chooseFilesForImport = vi.fn().mockResolvedValue([
+      { path: "/tmp/import/meeting.mp3", filename: "meeting.mp3", extension: ".mp3", supported: true },
+    ]);
+    window.voiceNoter.import.importFiles = vi.fn().mockResolvedValue({
+      importedItems: [mockItemSummary],
+      rejectedFiles: [],
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /^Import$/i }));
+    expect(await screen.findByText(/Tag imported file/i)).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText(/team, planning, follow up/i), "Follow Up,");
+    await user.click(screen.getByRole("button", { name: /^Save tags$/i }));
+
+    await waitFor(() => expect(window.voiceNoter.tags.assignTagsToItems).toHaveBeenCalledWith(["item-1"], ["follow up"]));
+  });
+
+  it("refreshes tag manager and filters after creating a new tag from item detail", async () => {
+    const user = userEvent.setup();
+    let tags = [] as Array<{ id: string; name: string; itemCount: number }>;
+    let detail = {
+      ...mockItemDetail,
+      tags: [] as Array<{ id: string; name: string }>,
+    };
+
+    window.voiceNoter.library.getCurrentLibrary = vi.fn().mockResolvedValue(mockLibraryState);
+    window.voiceNoter.library.getLastLibrary = vi.fn().mockResolvedValue(mockLibraryState.path);
+    window.voiceNoter.queue.getSummary = vi.fn().mockResolvedValue(mockQueueSummary);
+    window.voiceNoter.items.getFacets = vi.fn().mockImplementation(async () => ({ tags }));
+    window.voiceNoter.tags.listTags = vi.fn().mockImplementation(async () => tags);
+    window.voiceNoter.items.listItems = vi.fn().mockResolvedValue({ ...mockItemPage, items: [mockItemSummary] });
+    window.voiceNoter.items.getItem = vi.fn().mockImplementation(async () => detail);
+    window.voiceNoter.items.updateItemMetadata = vi.fn().mockImplementation(async (_itemId, metadata: { tagNames?: string[] }) => {
+      detail = {
+        ...detail,
+        tags: (metadata.tagNames ?? []).map((name, index) => ({ id: `tag-${index + 1}`, name })),
+      };
+      tags = detail.tags.map((tag) => ({ ...tag, itemCount: 1 }));
+      return detail;
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /^All Items$/i }));
+    await user.click(await screen.findByRole("button", { name: /Test Recording/i }));
+    await user.type(screen.getByPlaceholderText(/follow up, customer, meeting/i), "urgent,");
+    await waitFor(() => expect(window.voiceNoter.items.updateItemMetadata).toHaveBeenCalledWith("item-1", { tagNames: ["urgent"] }));
+
+    await user.click(screen.getByRole("button", { name: /^Tag Manager$/i }));
+    expect((await screen.findAllByText("urgent")).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: /^Filter$/i }));
+    await waitFor(() =>
+      expect(window.voiceNoter.items.listItems).toHaveBeenCalledWith(expect.objectContaining({ view: "tag", tagIds: ["tag-1"], limit: 50, offset: 0 })),
+    );
   });
 
   it("confirms before leaving the focus page with unsaved transcript edits", async () => {

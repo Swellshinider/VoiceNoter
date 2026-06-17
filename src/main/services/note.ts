@@ -5,7 +5,8 @@ import matter from "gray-matter";
 import type { ModelId, NoteContent, Transcript, TranscriptSegment } from "../../shared/types";
 import type { VoiceNoterDatabase } from "./database";
 import type { ItemRow } from "./items";
-import { getOrCreateTag } from "./items";
+import { getItemTags } from "./items";
+import { getOrCreateTag } from "./tags";
 
 type TranscriptRow = {
   id: string;
@@ -28,6 +29,7 @@ export class NoteService {
     const item = this.getItemRow(itemId);
     const transcript = this.getTranscript(itemId);
     const existing = this.findNoteRow(itemId);
+    const tagNames = getItemTags(this.db, itemId).map((tag) => tag.name);
     const now = new Date().toISOString();
     const createdAt = existing?.created_at ?? now;
     const notePath = existing?.path ?? join(this.libraryRoot, "notes", `${now.slice(0, 10)}-${safeSlug(item.title)}.md`);
@@ -40,7 +42,7 @@ export class NoteService {
       duration_seconds: item.duration_seconds ?? 0,
       type: item.source_type,
       language: transcript?.language ?? "auto",
-      tags: [] as string[],
+      tags: tagNames,
       transcription_engine: "local-whisper-compatible",
       transcription_model: transcriptionModel,
     };
@@ -160,6 +162,40 @@ export class NoteService {
     };
   }
 
+  async syncMetadataFromItem(itemId: string): Promise<NoteContent | null> {
+    const existing = this.findNoteRow(itemId);
+    if (!existing) {
+      return null;
+    }
+
+    const item = this.getItemRow(itemId);
+    const tagNames = getItemTags(this.db, itemId).map((tag) => tag.name);
+    const parsed = matter(await readFile(existing.path, "utf8"));
+    parsed.data = {
+      ...parsed.data,
+      title: item.title,
+      tags: tagNames,
+    };
+
+    const markdown = `${matter.stringify(parsed.content, parsed.data).trimEnd()}\n`;
+    const now = new Date().toISOString();
+    const contentHash = hashContent(markdown);
+
+    await writeFile(existing.path, markdown, "utf8");
+    this.db
+      .prepare("UPDATE notes SET title = ?, frontmatter_json = ?, content_hash = ?, updated_at = ? WHERE item_id = ?")
+      .run(item.title, JSON.stringify(parsed.data), contentHash, now, itemId);
+
+    return {
+      itemId,
+      path: existing.path,
+      markdown,
+      frontmatter: parsed.data as Record<string, unknown>,
+      contentHash,
+      updatedAt: now,
+    };
+  }
+
   private getItemRow(itemId: string): ItemRow {
     const row = this.db.prepare("SELECT * FROM items WHERE id = ?").get(itemId) as ItemRow | undefined;
     if (!row) {
@@ -228,6 +264,9 @@ export class NoteService {
 }
 
 function renderMarkdown(frontmatter: Record<string, unknown>, segments: TranscriptSegment[]): string {
+  const tags = Array.isArray(frontmatter.tags)
+    ? frontmatter.tags.filter((tag): tag is string => typeof tag === "string")
+    : [];
   return `---
 id: "${escapeYaml(String(frontmatter.id))}"
 title: "${escapeYaml(String(frontmatter.title))}"
@@ -237,7 +276,7 @@ library_media_path: "${escapeYaml(String(frontmatter.library_media_path))}"
 duration_seconds: ${frontmatter.duration_seconds}
 type: "${escapeYaml(String(frontmatter.type))}"
 language: "${escapeYaml(String(frontmatter.language))}"
-tags: []
+${renderTagsFrontmatter(tags)}
 transcription_engine: "local-whisper-compatible"
 transcription_model: "${escapeYaml(String(frontmatter.transcription_model))}"
 ---
@@ -255,6 +294,14 @@ Summary not generated in VoiceNoter V1.
 
 ${renderTranscript(segments)}
 `;
+}
+
+function renderTagsFrontmatter(tags: string[]): string {
+  if (tags.length === 0) {
+    return "tags: []";
+  }
+
+  return `tags:\n${tags.map((tag) => `  - "${escapeYaml(tag)}"`).join("\n")}`;
 }
 
 export function stripCategoryFromMarkdown(markdown: string, legacyCategory?: string): string {

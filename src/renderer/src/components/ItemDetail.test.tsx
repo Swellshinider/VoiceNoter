@@ -22,24 +22,25 @@ describe("ItemDetail", () => {
   });
 
   it("shows placeholder when no item selected", () => {
-    render(<ItemDetail item={null} jumpToSeconds={null} onReload={vi.fn()} />);
+    render(<ItemDetail item={null} availableTagNames={[]} jumpToSeconds={null} onReload={vi.fn()} />);
     expect(screen.getAllByText("Select an item.")[0]).toBeInTheDocument();
   });
 
   it("shows loading spinner when isLoading and no item", () => {
-    render(<ItemDetail item={null} jumpToSeconds={null} isLoading onReload={vi.fn()} />);
+    render(<ItemDetail item={null} availableTagNames={[]} jumpToSeconds={null} isLoading onReload={vi.fn()} />);
     expect(screen.getAllByText("Loading...")[0]).toBeInTheDocument();
   });
 
   it("keeps timestamps visible and updates the full transcript mirror from draft edits", async () => {
     const user = userEvent.setup();
-    render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} />);
+    render(<ItemDetail item={mockItemDetail} availableTagNames={[]} jumpToSeconds={null} onReload={vi.fn()} />);
 
     expect(screen.getByText("00:00:00")).toBeInTheDocument();
     expect(screen.getByText("00:00:05")).toBeInTheDocument();
 
-    await user.clear(screen.getByDisplayValue("Hello world"));
-    await user.type(screen.getByDisplayValue(""), "Hello corrected world");
+    const transcriptField = screen.getByDisplayValue("Hello world");
+    await user.clear(transcriptField);
+    await user.type(transcriptField, "Hello corrected world");
 
     expect(screen.getAllByText(/Hello corrected world/i).length).toBeGreaterThan(0);
     expect(screen.getByText("Full transcript")).toBeInTheDocument();
@@ -60,10 +61,11 @@ describe("ItemDetail", () => {
     });
     (window.voiceNoter.items as typeof window.voiceNoter.items & { updateTranscript: typeof updateTranscript }).updateTranscript = updateTranscript;
 
-    render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} />);
+    render(<ItemDetail item={mockItemDetail} availableTagNames={[]} jumpToSeconds={null} onReload={vi.fn()} />);
 
-    await user.clear(screen.getByDisplayValue("Hello world"));
-    await user.type(screen.getByDisplayValue(""), "Hello corrected world");
+    const transcriptField = screen.getByDisplayValue("Hello world");
+    await user.clear(transcriptField);
+    await user.type(transcriptField, "Hello corrected world");
     await user.click(screen.getByRole("button", { name: /^Save$/i }));
 
     await waitFor(() =>
@@ -79,10 +81,11 @@ describe("ItemDetail", () => {
 
   it("restores the persisted transcript when cancel is pressed", async () => {
     const user = userEvent.setup();
-    render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} />);
+    render(<ItemDetail item={mockItemDetail} availableTagNames={[]} jumpToSeconds={null} onReload={vi.fn()} />);
 
-    await user.clear(screen.getByDisplayValue("Hello world"));
-    await user.type(screen.getByDisplayValue(""), "Discard me");
+    const transcriptField = screen.getByDisplayValue("Hello world");
+    await user.clear(transcriptField);
+    await user.type(transcriptField, "Discard me");
     await user.click(screen.getByRole("button", { name: /^Cancel$/i }));
 
     expect(screen.getByDisplayValue("Hello world")).toBeInTheDocument();
@@ -96,6 +99,7 @@ describe("ItemDetail", () => {
           ...mockItemDetail,
           transcript: null,
         }}
+        availableTagNames={[]}
         jumpToSeconds={null}
         onReload={vi.fn()}
       />,
@@ -114,7 +118,7 @@ describe("ItemDetail", () => {
       value: fastSeek,
     });
 
-    render(<ItemDetail item={mockItemDetail} jumpToSeconds={null} onReload={vi.fn()} />);
+    render(<ItemDetail item={mockItemDetail} availableTagNames={[]} jumpToSeconds={null} onReload={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /00:00:05/i }));
 
     expect(fastSeek).toHaveBeenCalledWith(5);
@@ -122,7 +126,7 @@ describe("ItemDetail", () => {
   });
 
   it("highlights the transcript segment that matches playback time and jump-to-seconds", () => {
-    render(<ItemDetail item={mockItemDetail} jumpToSeconds={5} onReload={vi.fn()} />);
+    render(<ItemDetail item={mockItemDetail} availableTagNames={[]} jumpToSeconds={5} onReload={vi.fn()} />);
     const audio = document.querySelector("audio");
     expect(audio).not.toBeNull();
 

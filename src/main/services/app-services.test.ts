@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import matter from "gray-matter";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, test, vi } from "vitest";
@@ -138,6 +139,65 @@ Summary without transcript heading.
       expect(updatedNote.trimEnd()).toMatch(
         /## Transcript\n\n### 00:00:00\n\nAppended transcript line\.\n\n### 00:00:05\n\nSecond appended transcript line\.$/,
       );
+    } finally {
+      db.close();
+    }
+  });
+
+  test("syncs title and lowercase tags into the note frontmatter and tag search when metadata changes", async () => {
+    const { services, db, itemId, notePath } = await createSeededServices();
+    try {
+      const updated = await (
+        services as unknown as {
+          updateItemMetadata(itemId: string, update: { title?: string; tagNames?: string[] }): Promise<{ title: string; tags: Array<{ name: string }> }>;
+        }
+      ).updateItemMetadata(itemId, {
+        title: "Updated Recording",
+        tagNames: [" Follow Up ", "FOLLOW UP", "Work"],
+      });
+
+      expect(updated.title).toBe("Updated Recording");
+      expect(updated.tags.map((tag) => tag.name)).toEqual(["follow up", "work"]);
+
+      const note = matter(await readFile(notePath, "utf8"));
+      expect(note.data.title).toBe("Updated Recording");
+      expect(note.data.tags).toEqual(["follow up", "work"]);
+
+      const searchService = new SearchService(db);
+      await expect(searchService.search({ text: "Updated Recording" })).resolves.toMatchObject({
+        total: 1,
+        items: [expect.objectContaining({ itemId, source: "title" })],
+      });
+      await expect(searchService.search({ text: "follow up" })).resolves.toMatchObject({
+        total: 1,
+        items: [expect.objectContaining({ itemId, source: "tag" })],
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("assigns, merges, and removes tags through the bulk tag APIs", async () => {
+    const { services, db, itemId } = await createSeededServices();
+    try {
+      await (services as unknown as { assignTagsToItems(itemIds: string[], tagNames: string[]): Promise<void> }).assignTagsToItems([itemId], [
+        "urgent",
+        "work",
+      ]);
+
+      const urgentTagId = (db.prepare("SELECT id FROM tags WHERE name = ?").get("urgent") as { id: string }).id;
+      await (services as unknown as { renameTag(tagId: string, name: string): Promise<{ tag: { name: string }; mergedTagId: string | null }> }).renameTag(
+        urgentTagId,
+        "work",
+      );
+
+      expect(db.prepare("SELECT name FROM tags ORDER BY name").all()).toEqual([{ name: "work" }]);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM item_tags WHERE item_id = ?").get(itemId)).toEqual({ count: 1 });
+
+      await (services as unknown as { removeTagsFromItems(itemIds: string[], tagNames: string[]): Promise<void> }).removeTagsFromItems([itemId], ["work"]);
+
+      expect(db.prepare("SELECT COUNT(*) AS count FROM item_tags WHERE item_id = ?").get(itemId)).toEqual({ count: 0 });
+      await expect(new SearchService(db).search({ text: "work" })).resolves.toMatchObject({ total: 0, items: [] });
     } finally {
       db.close();
     }

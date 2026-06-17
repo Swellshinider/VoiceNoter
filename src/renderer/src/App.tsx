@@ -1,6 +1,7 @@
 import { Import, Search as SearchIcon } from "lucide-react";
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import type {
+  CountedTag,
   DashboardStorageBreakdown,
   DashboardSummary,
   ItemDetail,
@@ -24,8 +25,10 @@ import { ModelManager } from "./components/ModelManager";
 import { QueueView } from "./components/QueueView";
 import { SettingsView } from "./components/SettingsView";
 import { SetupView } from "./components/SetupView";
-import { Sidebar, type FilterState, type ViewKey } from "./components/Sidebar";
-import { Button, Input, Toaster } from "./components/ui";
+import { Sidebar, type ViewKey } from "./components/Sidebar";
+import { TagInput } from "./components/TagInput";
+import { TagManager } from "./components/TagManager";
+import { Button, Input, Modal, Panel, Toaster } from "./components/ui";
 import { useDocumentTheme } from "./hooks/useDocumentTheme";
 import { useToasts } from "./hooks/useToasts";
 import { getSystemTheme, mapSearchResultToItemSummary, mergePageResults, normalizeToastError } from "./lib/app";
@@ -48,6 +51,18 @@ type FocusState = {
   originView: ViewKey;
 };
 
+type ImportTaggingState = {
+  items: ItemSummary[];
+  sharedTagNames: string[];
+  additionalTagNamesByItemId: Record<string, string[]>;
+};
+
+type BulkTagDialogState = {
+  mode: "assign" | "remove";
+  itemIds: string[];
+  tagNames: string[];
+};
+
 export function App() {
   const [library, setLibrary] = useState<LibraryState | null>(null);
   const [lastLibraryPath, setLastLibraryPath] = useState<string | null>(null);
@@ -56,6 +71,7 @@ export function App() {
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
   const [dashboardStorage, setDashboardStorage] = useState<AsyncState<DashboardStorageBreakdown>>({ value: null, isLoading: false });
   const [facets, setFacets] = useState<ItemFacets | null>(null);
+  const [allTags, setAllTags] = useState<CountedTag[]>([]);
   const [queueSummary, setQueueSummary] = useState<QueueSummary | null>(null);
   const [itemsState, setItemsState] = useState<PagedState<ItemSummary>>(createPagedState<ItemSummary>());
   const [queueState, setQueueState] = useState<PagedState<ProcessingStatusGroup>>(createPagedState<ProcessingStatusGroup>());
@@ -68,14 +84,18 @@ export function App() {
   const [submittedSearchText, setSubmittedSearchText] = useState("");
   const [jumpToSeconds, setJumpToSeconds] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState("Loading...");
-  const [activeFilter, setActiveFilter] = useState<FilterState>(null);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedBulkItemIds, setSelectedBulkItemIds] = useState<string[]>([]);
+  const [importTaggingState, setImportTaggingState] = useState<ImportTaggingState | null>(null);
+  const [bulkTagDialog, setBulkTagDialog] = useState<BulkTagDialogState | null>(null);
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() => getSystemTheme());
   const [hasUnsavedTranscriptChanges, setHasUnsavedTranscriptChanges] = useState(false);
   const { toasts, addToast, removeToast } = useToasts();
   const selectedItemIdRef = useRef<string | null>(null);
   const previousJobStatusesRef = useRef<Map<string, JobStatus>>(new Map());
   const viewRef = useRef<ViewKey>(view);
-  const activeFilterRef = useRef<FilterState>(activeFilter);
+  const selectedTagIdsRef = useRef<string[]>(selectedTagIds);
   const itemsPageRef = useRef<PageResult<ItemSummary> | null>(itemsState.page);
   const queuePageRef = useRef<PageResult<ProcessingStatusGroup> | null>(queueState.page);
 
@@ -101,6 +121,7 @@ export function App() {
       setDashboardSummary(null);
       setDashboardStorage({ value: null, isLoading: false });
       setFacets(null);
+      setAllTags([]);
       setQueueSummary(null);
       setItemsState(createPagedState<ItemSummary>());
       setQueueState(createPagedState<ProcessingStatusGroup>());
@@ -111,15 +132,17 @@ export function App() {
       return;
     }
 
-    const [nextQueueSummary, nextDashboardSummary, nextFacets] = await Promise.all([
+    const [nextQueueSummary, nextDashboardSummary, nextFacets, nextTags] = await Promise.all([
       window.voiceNoter.queue.getSummary().catch(() => null),
       window.voiceNoter.dashboard.getSummary().catch(() => null),
       window.voiceNoter.items.getFacets().catch(() => null),
+      window.voiceNoter.tags.listTags().catch(() => []),
     ]);
 
     setQueueSummary(nextQueueSummary);
     setDashboardSummary(nextDashboardSummary);
     setFacets(nextFacets);
+    setAllTags(nextTags);
     if (!nextLibrary.selectedModelId) {
       setView("models");
       setStatusMessage(IMPORT_BLOCKED_MESSAGE);
@@ -161,8 +184,8 @@ export function App() {
       setItemsState((previous) => ({ ...previous, isLoading: !append, isLoadingMore: append }));
       try {
         const query =
-          activeFilterRef.current?.type === "tag"
-            ? { view: "tag" as const, tagId: activeFilterRef.current.id, limit, offset }
+          selectedTagIdsRef.current.length > 0
+            ? { view: "tag" as const, tagIds: selectedTagIdsRef.current, limit, offset }
             : { view: "all" as const, limit, offset };
         const page = await window.voiceNoter.items.listItems(query);
         startTransition(() => {
@@ -218,7 +241,7 @@ export function App() {
       try {
         const page = await window.voiceNoter.search.search({
           text,
-          tagId: activeFilterRef.current?.type === "tag" ? activeFilterRef.current.id : undefined,
+          tagIds: selectedTagIdsRef.current.length > 0 ? selectedTagIdsRef.current : undefined,
           limit,
           offset,
         });
@@ -258,6 +281,7 @@ export function App() {
   }, [refreshSelectedItemById]);
 
   const reloadSelectedItemAndVisibleList = useCallback(async () => {
+    await refreshShellData();
     await refreshSelectedItem();
     if (viewRef.current === "all" && submittedSearchText) {
       await loadSearchPage({ offset: 0, limit: PAGE_SIZE });
@@ -267,7 +291,7 @@ export function App() {
     if (viewRef.current === "queue" && queuePageRef.current) {
       await loadQueuePage({ offset: 0, limit: Math.min(queuePageRef.current.items.length, MAX_QUEUE_REFRESH) });
     }
-  }, [loadItemsPage, loadQueuePage, loadSearchPage, refreshSelectedItem, submittedSearchText]);
+  }, [loadItemsPage, loadQueuePage, loadSearchPage, refreshSelectedItem, refreshShellData, submittedSearchText]);
 
   useEffect(() => {
     selectedItemIdRef.current = selectedItemId;
@@ -278,8 +302,8 @@ export function App() {
   }, [view]);
 
   useEffect(() => {
-    activeFilterRef.current = activeFilter;
-  }, [activeFilter]);
+    selectedTagIdsRef.current = selectedTagIds;
+  }, [selectedTagIds]);
 
   useEffect(() => {
     itemsPageRef.current = itemsState.page;
@@ -328,9 +352,15 @@ export function App() {
     loadItemsPage,
     loadQueuePage,
     loadSearchPage,
+    selectedTagIds,
     submittedSearchText,
     view,
   ]);
+
+  useEffect(() => {
+    setIsSelectionMode(false);
+    setSelectedBulkItemIds([]);
+  }, [selectedTagIds, submittedSearchText, view]);
 
   useEffect(() => {
     if (!library) {
@@ -383,7 +413,7 @@ export function App() {
   function resetWorkspaceViewState() {
     setView("dashboard");
     setFocusState(null);
-    setActiveFilter(null);
+    setSelectedTagIds([]);
     setSelectedItemId(null);
     setSelectedItem({ value: null, isLoading: false });
     setJumpToSeconds(null);
@@ -395,8 +425,13 @@ export function App() {
     setDashboardSummary(null);
     setQueueSummary(null);
     setFacets(null);
+    setAllTags([]);
     setDashboardStorage({ value: null, isLoading: false });
     setHasUnsavedTranscriptChanges(false);
+    setIsSelectionMode(false);
+    setSelectedBulkItemIds([]);
+    setImportTaggingState(null);
+    setBulkTagDialog(null);
   }
 
   function confirmFocusExit(): boolean {
@@ -421,8 +456,9 @@ export function App() {
       return;
     }
     setView(nextView);
+    setIsSelectionMode(false);
+    setSelectedBulkItemIds([]);
     if (nextView !== "all") {
-      setActiveFilter(null);
       setSubmittedSearchText("");
       setSearchState(createPagedState<SearchResult>());
     }
@@ -487,6 +523,13 @@ export function App() {
         }
       }
       await refreshShellData();
+      if (result.importedItems.length > 0) {
+        setImportTaggingState({
+          items: result.importedItems,
+          sharedTagNames: [],
+          additionalTagNamesByItemId: Object.fromEntries(result.importedItems.map((item) => [item.id, []])),
+        });
+      }
       if (result.rejectedFiles.length > 0) {
         for (const rejected of result.rejectedFiles) {
           addToast({ variant: "error", title: rejected.error.title, message: rejected.error.message, technicalDetails: rejected.error.technicalDetails });
@@ -506,13 +549,13 @@ export function App() {
       setSubmittedSearchText("");
       setSearchState(createPagedState<SearchResult>());
       setView("all");
-      setStatusMessage(activeFilterRef.current ? `Showing tag: ${activeFilterRef.current.name}` : "All items");
+      setStatusMessage(selectedTagIdsRef.current.length > 0 ? `Showing ${selectedTagIdsRef.current.length} tag filters` : "All items");
       return;
     }
     try {
       const page = await window.voiceNoter.search.search({
         text,
-        tagId: activeFilterRef.current?.type === "tag" ? activeFilterRef.current.id : undefined,
+        tagIds: selectedTagIdsRef.current.length > 0 ? selectedTagIdsRef.current : undefined,
         limit: PAGE_SIZE,
         offset: 0,
       });
@@ -529,11 +572,19 @@ export function App() {
     openItemFocus(itemId, null, "dashboard");
   }
 
-  function handleFilterSelect(filter: FilterState) {
-    setActiveFilter(filter);
+  function handleToggleTagFilter(tagId: string) {
     if (!closeFocusView()) {
       return;
     }
+    setSelectedTagIds((previous) => (previous.includes(tagId) ? previous.filter((id) => id !== tagId) : [...previous, tagId]));
+    setView("all");
+  }
+
+  function clearTagFilters() {
+    if (!closeFocusView()) {
+      return;
+    }
+    setSelectedTagIds([]);
     setView("all");
   }
 
@@ -558,10 +609,114 @@ export function App() {
     await loadSearchPage({ offset: searchState.page.nextOffset, limit: PAGE_SIZE, append: true });
   }
 
+  async function refreshTagDrivenViews() {
+    await refreshShellData();
+    await reloadSelectedItemAndVisibleList();
+  }
+
+  function toggleSelectionMode() {
+    setIsSelectionMode((previous) => !previous);
+    setSelectedBulkItemIds([]);
+  }
+
+  function toggleSelectAllVisible() {
+    setSelectedBulkItemIds((previous) => {
+      const visibleIds = currentItemList.map((item) => item.id);
+      const allSelected = visibleIds.every((id) => previous.includes(id));
+      return allSelected ? previous.filter((id) => !visibleIds.includes(id)) : [...new Set([...previous, ...visibleIds])];
+    });
+  }
+
+  function toggleItemSelection(itemId: string) {
+    setSelectedBulkItemIds((previous) => (previous.includes(itemId) ? previous.filter((id) => id !== itemId) : [...previous, itemId]));
+  }
+
+  async function createTag(name: string) {
+    try {
+      await window.voiceNoter.tags.createTag(name);
+      await refreshTagDrivenViews();
+    } catch (error) {
+      addToast(normalizeToastError(error, "Tag creation failed", "Could not create tag."));
+    }
+  }
+
+  async function renameTag(tagId: string, name: string) {
+    try {
+      const result = await window.voiceNoter.tags.renameTag(tagId, name);
+      await refreshTagDrivenViews();
+      if (result.mergedTagId) {
+        setSelectedTagIds((previous) => previous.map((id) => (id === tagId ? result.tag.id : id)));
+      }
+    } catch (error) {
+      addToast(normalizeToastError(error, "Tag rename failed", "Could not rename tag."));
+    }
+  }
+
+  async function deleteTag(tagId: string) {
+    try {
+      await window.voiceNoter.tags.deleteTag(tagId);
+      setSelectedTagIds((previous) => previous.filter((id) => id !== tagId));
+      await refreshTagDrivenViews();
+    } catch (error) {
+      addToast(normalizeToastError(error, "Tag delete failed", "Could not delete tag."));
+    }
+  }
+
+  async function saveBulkTagDialog() {
+    if (!bulkTagDialog || bulkTagDialog.tagNames.length === 0) {
+      setBulkTagDialog(null);
+      return;
+    }
+    try {
+      if (bulkTagDialog.mode === "assign") {
+        await window.voiceNoter.tags.assignTagsToItems(bulkTagDialog.itemIds, bulkTagDialog.tagNames);
+      } else {
+        await window.voiceNoter.tags.removeTagsFromItems(bulkTagDialog.itemIds, bulkTagDialog.tagNames);
+      }
+      setBulkTagDialog(null);
+      setSelectedBulkItemIds([]);
+      setIsSelectionMode(false);
+      await refreshTagDrivenViews();
+    } catch (error) {
+      addToast(normalizeToastError(error, "Bulk tag update failed", "Could not update tags for the selected files."));
+    }
+  }
+
+  async function saveImportTags() {
+    if (!importTaggingState) {
+      return;
+    }
+
+    try {
+      if (importTaggingState.sharedTagNames.length > 0) {
+        await window.voiceNoter.tags.assignTagsToItems(
+          importTaggingState.items.map((item) => item.id),
+          importTaggingState.sharedTagNames,
+        );
+      }
+
+      for (const item of importTaggingState.items) {
+        const extraTagNames = importTaggingState.additionalTagNamesByItemId[item.id] ?? [];
+        if (extraTagNames.length > 0) {
+          await window.voiceNoter.tags.assignTagsToItems([item.id], extraTagNames);
+        }
+      }
+
+      setImportTaggingState(null);
+      await refreshTagDrivenViews();
+    } catch (error) {
+      addToast(normalizeToastError(error, "Tagging failed", "Could not save tags for the imported files."));
+    }
+  }
+
   if (!library) {
     return <SetupView lastLibraryPath={lastLibraryPath} onChooseLibrary={() => void chooseLibrary()} onOpenLastLibrary={lastLibraryPath ? () => void openLastLibrary() : undefined} />;
   }
 
+  const selectedTagNames = selectedTagIds
+    .map((tagId) => allTags.find((tag) => tag.id === tagId)?.name)
+    .filter((tagName): tagName is string => Boolean(tagName));
+  const availableTagNames = allTags.map((tag) => tag.name);
   const currentSearchResults = submittedSearchText ? (searchState.page?.items ?? []) : [];
   const searchItems: ItemSummary[] = currentSearchResults.map(mapSearchResultToItemSummary);
   const currentItemList = view === "all" ? (submittedSearchText ? searchItems : itemsState.page?.items ?? []) : [];
@@ -582,9 +737,10 @@ export function App() {
       <Sidebar
         view={view}
         facets={facets}
-        activeFilter={activeFilter}
+        selectedTagIds={selectedTagIds}
         onViewChange={navigateToView}
-        onFilterSelect={handleFilterSelect}
+        onToggleTagFilter={handleToggleTagFilter}
+        onClearTagFilters={clearTagFilters}
       />
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-3">
@@ -613,6 +769,7 @@ export function App() {
         {focusState ? (
           <ItemDetailView
             item={selectedItem.value}
+            availableTagNames={availableTagNames}
             jumpToSeconds={jumpToSeconds}
             isLoading={selectedItem.isLoading}
             onReload={() => void reloadSelectedItemAndVisibleList()}
@@ -705,23 +862,132 @@ export function App() {
             onSelectItem={openDashboardItem}
             onOpenQueue={() => navigateToView("queue")}
           />
+        ) : view === "tags" ? (
+          <TagManager
+            tags={allTags}
+            selectedTagIds={selectedTagIds}
+            onCreateTag={(name) => void createTag(name)}
+            onRenameTag={(tagId, name) => void renameTag(tagId, name)}
+            onDeleteTag={(tagId) => void deleteTag(tagId)}
+            onToggleFilter={(tagId) => handleToggleTagFilter(tagId)}
+          />
         ) : (
           <ItemList
             items={currentItemList}
             selectedItemId={selectedItemId}
+            selectedItemIds={selectedBulkItemIds}
             searchResults={currentSearchResults}
             searchText={submittedSearchText}
-            activeFilterLabel={activeFilter?.name}
+            activeFilterLabel={selectedTagNames.length > 0 ? selectedTagNames.join(", ") : undefined}
             isLoading={submittedSearchText ? searchState.isLoading : itemsState.isLoading}
             isLoadingMore={submittedSearchText ? searchState.isLoadingMore : itemsState.isLoadingMore}
             hasMore={submittedSearchText ? searchState.page?.nextOffset !== null : itemsState.page?.nextOffset !== null}
+            isSelectionMode={isSelectionMode}
+            selectionEnabled
             onLoadMore={() => void (submittedSearchText ? handleLoadMoreSearch() : handleLoadMoreItems())}
+            onToggleSelectionMode={toggleSelectionMode}
+            onToggleSelectAllVisible={toggleSelectAllVisible}
+            onToggleItemSelection={toggleItemSelection}
+            onOpenBulkAssign={() =>
+              setBulkTagDialog({
+                mode: "assign",
+                itemIds: selectedBulkItemIds,
+                tagNames: [],
+              })
+            }
+            onOpenBulkRemove={() =>
+              setBulkTagDialog({
+                mode: "remove",
+                itemIds: selectedBulkItemIds,
+                tagNames: [],
+              })
+            }
             onSelectItem={(itemId, startSeconds) => openItemFocus(itemId, startSeconds, viewRef.current)}
             fullWidth
           />
         )}
         <footer className="h-7 shrink-0 border-t border-border bg-card px-3 py-1 text-xs text-muted-foreground">{statusMessage}</footer>
       </main>
+      {importTaggingState ? (
+        <Modal
+          title={importTaggingState.items.length === 1 ? "Tag imported file" : "Tag imported files"}
+          description="Type tags separated by commas. Existing tags autocomplete, and new tags are created automatically."
+          footer={
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setImportTaggingState(null)}>
+                Skip for now
+              </Button>
+              <Button onClick={() => void saveImportTags()}>Save tags</Button>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            <div>
+              <div className="mb-2 text-sm font-medium">Apply to every imported file</div>
+              <TagInput
+                placeholder="team, planning, follow up"
+                suggestions={availableTagNames}
+                value={importTaggingState.sharedTagNames}
+                onChange={(sharedTagNames) => setImportTaggingState((previous) => (previous ? { ...previous, sharedTagNames } : previous))}
+              />
+            </div>
+            <div className="space-y-3">
+              {importTaggingState.items.map((item) => (
+                <Panel key={item.id} className="p-4">
+                  <div className="mb-2 text-sm font-medium">{item.title}</div>
+                  <div className="mb-2 text-xs text-muted-foreground">Additional tags for this file</div>
+                  <TagInput
+                    placeholder="customer, urgent"
+                    suggestions={availableTagNames}
+                    value={importTaggingState.additionalTagNamesByItemId[item.id] ?? []}
+                    onChange={(nextTagNames) =>
+                      setImportTaggingState((previous) =>
+                        previous
+                          ? {
+                              ...previous,
+                              additionalTagNamesByItemId: {
+                                ...previous.additionalTagNamesByItemId,
+                                [item.id]: nextTagNames,
+                              },
+                            }
+                          : previous,
+                      )
+                    }
+                  />
+                </Panel>
+              ))}
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+      {bulkTagDialog ? (
+        <Modal
+          title={bulkTagDialog.mode === "assign" ? "Assign tags" : "Remove tags"}
+          description={
+            bulkTagDialog.mode === "assign"
+              ? `Update ${bulkTagDialog.itemIds.length} selected files.`
+              : `Remove selected tags from ${bulkTagDialog.itemIds.length} files.`
+          }
+          footer={
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setBulkTagDialog(null)}>
+                Cancel
+              </Button>
+              <Button onClick={() => void saveBulkTagDialog()}>
+                {bulkTagDialog.mode === "assign" ? "Assign tags" : "Remove tags"}
+              </Button>
+            </div>
+          }
+        >
+          <TagInput
+            allowCreate={bulkTagDialog.mode === "assign"}
+            placeholder={bulkTagDialog.mode === "assign" ? "follow up, work, review" : "Type existing tags to remove"}
+            suggestions={availableTagNames}
+            value={bulkTagDialog.tagNames}
+            onChange={(tagNames) => setBulkTagDialog((previous) => (previous ? { ...previous, tagNames } : previous))}
+          />
+        </Modal>
+      ) : null}
       <Toaster toasts={toasts} onDismiss={removeToast} />
     </div>
   );
