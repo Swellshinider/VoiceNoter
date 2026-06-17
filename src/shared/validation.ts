@@ -15,6 +15,18 @@ export const jobIdSchema = z.string().trim().min(1);
 export const libraryPathSchema = z.string().trim().min(1);
 export const markdownSchema = z.string();
 export const importPathsSchema = z.array(z.string().trim().min(1));
+export const transcriptSegmentSchema = z
+  .object({
+    startSeconds: z.number().finite().nonnegative(),
+    endSeconds: z.number().finite().nonnegative(),
+    text: z.string().trim().min(1),
+  })
+  .strict();
+export const transcriptUpdateSchema = z
+  .object({
+    segments: z.array(transcriptSegmentSchema),
+  })
+  .strict();
 export const pageRequestSchema = z
   .object({
     limit: z.number().int().nonnegative().optional(),

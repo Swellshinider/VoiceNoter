@@ -52,6 +52,7 @@ const items: ItemsApi = {
   readNote: (itemId) => ipcRenderer.invoke(ipcChannels.items.readNote, itemId),
   saveNote: (itemId, markdown) => ipcRenderer.invoke(ipcChannels.items.saveNote, itemId, markdown),
   updateItemMetadata: (itemId, metadata) => ipcRenderer.invoke(ipcChannels.items.updateMetadata, itemId, metadata),
+  updateTranscript: (itemId, update) => ipcRenderer.invoke(ipcChannels.items.updateTranscript, itemId, update),
 };
 
 const search: SearchApi = {
