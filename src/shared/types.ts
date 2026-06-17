@@ -48,7 +48,6 @@ export type ItemSummary = {
   status: ItemStatus;
   notePath: string | null;
   durationSeconds: number | null;
-  category: Category | null;
   tags: Tag[];
   importedAt: ISODateTime;
   updatedAt: ISODateTime;
@@ -92,11 +91,6 @@ export type NoteContent = {
   updatedAt: ISODateTime;
 };
 
-export type Category = {
-  id: string;
-  name: string;
-};
-
 export type Tag = {
   id: string;
   name: string;
@@ -104,7 +98,6 @@ export type Tag = {
 
 export type ItemMetadataUpdate = {
   title?: string;
-  categoryId?: string | null;
   tagIds?: string[];
 };
 
@@ -121,22 +114,16 @@ export type PageResult<T> = {
   nextOffset: number | null;
 };
 
-export type CountedCategory = Category & {
-  itemCount: number;
-};
-
 export type CountedTag = Tag & {
   itemCount: number;
 };
 
 export type ItemFacets = {
-  categories: CountedCategory[];
   tags: CountedTag[];
 };
 
 export type ItemListQuery = {
-  view?: "inbox" | "all" | "category" | "tag";
-  categoryId?: string;
+  view?: "all" | "tag";
   tagId?: string;
 } & PageRequest;
 
@@ -161,6 +148,13 @@ export type Job = {
   createdAt: ISODateTime;
   startedAt: ISODateTime | null;
   completedAt: ISODateTime | null;
+};
+
+export type ProcessingStatusGroup = {
+  kind: "item" | "system";
+  itemId: string | null;
+  label: string;
+  jobs: Job[];
 };
 
 export type QueueListQuery = PageRequest & {
@@ -194,7 +188,6 @@ export type ProcessingEvent = {
 
 export type SearchQuery = {
   text: string;
-  categoryId?: string;
   tagId?: string;
 } & PageRequest;
 
@@ -203,7 +196,7 @@ export type SearchResult = {
   notePath: string;
   title: string;
   snippet: string;
-  source: "title" | "note" | "transcript" | "category" | "tag";
+  source: "title" | "note" | "transcript" | "tag";
   sourceType: SourceType;
   status: ItemStatus;
   startSeconds: number | null;
@@ -320,7 +313,7 @@ export type ImportApi = {
 };
 
 export type QueueApi = {
-  listJobs(query?: QueueListQuery): Promise<PageResult<Job>>;
+  listJobs(query?: QueueListQuery): Promise<PageResult<ProcessingStatusGroup>>;
   getSummary(): Promise<QueueSummary>;
   retryJob(jobId: string): Promise<Job>;
   cancelJob(jobId: string): Promise<Job>;

@@ -16,9 +16,8 @@ export class SearchService {
   async indexItem(itemId: string): Promise<void> {
     const item = this.getItemRow(itemId);
     const tags = getItemTags(this.db, itemId).map((tag) => tag.name).join(" ");
-    const category = item.category_name ?? "";
     const noteMarkdown = item.note_path ? await readFile(item.note_path, "utf8") : "";
-    const noteBody = stripTranscriptSection(matter(noteMarkdown).content);
+    const noteBody = stripLegacyCategoryComment(stripTranscriptSection(matter(noteMarkdown).content));
     const transcriptRow = this.db
       .prepare("SELECT raw_text, segments_json FROM transcripts WHERE item_id = ? ORDER BY created_at DESC LIMIT 1")
       .get(itemId) as TranscriptRow | undefined;
@@ -29,9 +28,6 @@ export class SearchService {
       this.insertSearchEntry(item, "title", null, { title: item.title });
       if (noteBody.trim()) {
         this.insertSearchEntry(item, "note", null, { note: noteBody });
-      }
-      if (category) {
-        this.insertSearchEntry(item, "category", null, { category });
       }
       if (tags) {
         this.insertSearchEntry(item, "tag", null, { tags });
@@ -133,16 +129,7 @@ export class SearchService {
   }
 
   private getItemRow(itemId: string): ItemRow {
-    const row = this.db
-      .prepare(
-        `
-          SELECT items.*, categories.name AS category_name
-          FROM items
-          LEFT JOIN categories ON categories.id = items.category_id
-          WHERE items.id = ?
-        `,
-      )
-      .get(itemId) as ItemRow | undefined;
+    const row = this.db.prepare("SELECT * FROM items WHERE id = ?").get(itemId) as ItemRow | undefined;
     if (!row) {
       throw new Error(`Item not found: ${itemId}`);
     }
@@ -153,15 +140,15 @@ export class SearchService {
     item: ItemRow,
     source: SearchResult["source"],
     startSeconds: number | null,
-    fields: Partial<Record<"title" | "note" | "transcript" | "category" | "tags", string>>,
+    fields: Partial<Record<"title" | "note" | "transcript" | "tags", string>>,
   ): void {
     this.db
       .prepare(
         `
           INSERT INTO search_entries_fts (
-            item_id, note_path, source, start_seconds, title, note, transcript, category, tags
+            item_id, note_path, source, start_seconds, title, note, transcript, tags
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
       .run(
@@ -172,7 +159,6 @@ export class SearchService {
         fields.title ?? "",
         fields.note ?? "",
         fields.transcript ?? "",
-        fields.category ?? "",
         fields.tags ?? "",
       );
   }
@@ -184,6 +170,10 @@ function stripTranscriptSection(markdownBody: string): string {
   return index === -1 ? markdownBody : markdownBody.slice(0, index);
 }
 
+function stripLegacyCategoryComment(content: string): string {
+  return content.replace(/<!--\s*Legacy category:[\s\S]*?-->\s*/gi, "").trim();
+}
+
 function toFtsPhrase(text: string): string {
   return `"${text.replace(/"/g, '""')}"`;
 }
@@ -191,10 +181,6 @@ function toFtsPhrase(text: string): string {
 function buildSearchWhereClause(query: SearchQuery, ftsQuery: string): { whereClause: string; params: unknown[] } {
   const clauses = ["search_entries_fts MATCH ?"];
   const params: unknown[] = [ftsQuery];
-  if (query.categoryId) {
-    clauses.push("items.category_id = ?");
-    params.push(query.categoryId);
-  }
   if (query.tagId) {
     clauses.push("items.id IN (SELECT item_id FROM item_tags WHERE tag_id = ?)");
     params.push(query.tagId);

@@ -159,9 +159,9 @@ async function createSeededServices(options: { noteMarkdown?: string } = {}) {
     `
       INSERT INTO items (
         id, title, source_type, original_path, library_media_path, extracted_audio_path,
-        note_path, category_id, duration_seconds, language, status, created_at, updated_at, imported_at
+        note_path, duration_seconds, language, status, created_at, updated_at, imported_at
       )
-      VALUES (?, ?, 'audio', ?, ?, NULL, ?, NULL, 10, 'en', 'ready', ?, ?, ?)
+      VALUES (?, ?, 'audio', ?, ?, NULL, ?, 10, 'en', 'ready', ?, ?, ?)
     `,
   ).run(itemId, "Test Recording", "/tmp/source/test-recording.mp3", join(libraryRoot, "media", "original", "test-recording.mp3"), notePath, now, now, now);
 

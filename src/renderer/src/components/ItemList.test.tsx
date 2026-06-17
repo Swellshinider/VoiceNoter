@@ -46,7 +46,7 @@ describe("ItemList", () => {
 
   it("shows active filter label", () => {
     render(<ItemList items={[]} selectedItemId={null} searchResults={[]} activeFilterLabel="My Category" onSelectItem={vi.fn()} hasMore={false} />);
-    expect(screen.getAllByText("My Category")[0]).toBeInTheDocument();
+    expect(screen.getByText("Tag: My Category")).toBeInTheDocument();
   });
 
   it("shows load more when more items are available", async () => {

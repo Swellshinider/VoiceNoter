@@ -36,7 +36,6 @@ export function mapSearchResultToItemSummary(result: SearchResult): ItemSummary 
     status: result.status,
     notePath: result.notePath,
     durationSeconds: null,
-    category: null,
     tags: [],
     importedAt: "",
     updatedAt: "",
@@ -52,4 +51,3 @@ export function mergePageResults<T>(previous: PageResult<T> | null, next: PageRe
     items: [...previous.items, ...next.items],
   };
 }
-

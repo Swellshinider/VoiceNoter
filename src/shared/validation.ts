@@ -35,8 +35,7 @@ export const pageRequestSchema = z
   .strict();
 export const itemListQuerySchema = pageRequestSchema
   .extend({
-    view: z.enum(["inbox", "all", "category", "tag"]).optional(),
-    categoryId: z.string().trim().min(1).optional(),
+    view: z.enum(["all", "tag"]).optional(),
     tagId: z.string().trim().min(1).optional(),
   })
   .strict();
@@ -48,14 +47,12 @@ export const queueListQuerySchema = pageRequestSchema
 export const searchQuerySchema = pageRequestSchema
   .extend({
     text: z.string().trim().min(1),
-    categoryId: z.string().trim().min(1).optional(),
     tagId: z.string().trim().min(1).optional(),
   })
   .strict();
 export const itemMetadataUpdateSchema = z
   .object({
     title: z.string().trim().min(1).optional(),
-    categoryId: z.string().trim().min(1).nullable().optional(),
     tagIds: z.array(z.string().trim().min(1)).optional(),
   })
   .strict();

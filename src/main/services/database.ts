@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
-import { dirname } from "node:path";
-import { mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 export type VoiceNoterDatabase = Database.Database;
 
@@ -9,11 +10,11 @@ export function openVoiceNoterDatabase(path: string): VoiceNoterDatabase {
   const db = new Database(path);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
-  runMigrations(db);
+  runMigrations(db, path);
   return db;
 }
 
-export function runMigrations(db: VoiceNoterDatabase): void {
+export function runMigrations(db: VoiceNoterDatabase, databasePath: string): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       id INTEGER PRIMARY KEY,
@@ -29,131 +30,341 @@ export function runMigrations(db: VoiceNoterDatabase): void {
     if (applied.has(migration.id)) {
       continue;
     }
-    const apply = db.transaction(() => {
-      db.exec(migration.sql);
-      db.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(
-        migration.id,
-        new Date().toISOString(),
-      );
-    });
-    apply();
+    migration.apply(db, databasePath);
+    db.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(
+      migration.id,
+      new Date().toISOString(),
+    );
   }
 }
 
-const migrations: Array<{ id: number; sql: string }> = [
+type Migration = {
+  id: number;
+  apply: (db: VoiceNoterDatabase, databasePath: string) => void;
+};
+
+const migrations: Migration[] = [
   {
     id: 1,
-    sql: `
-      CREATE TABLE categories (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE,
-        created_at TEXT NOT NULL
-      );
+    apply: (db) => {
+      db.exec(`
+        CREATE TABLE categories (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          created_at TEXT NOT NULL
+        );
 
-      CREATE TABLE tags (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE,
-        created_at TEXT NOT NULL
-      );
+        CREATE TABLE tags (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          created_at TEXT NOT NULL
+        );
 
-      CREATE TABLE models (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        size_label TEXT NOT NULL,
-        local_path TEXT,
-        status TEXT NOT NULL,
-        downloaded_at TEXT,
-        selected_at TEXT
-      );
+        CREATE TABLE models (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          size_label TEXT NOT NULL,
+          local_path TEXT,
+          status TEXT NOT NULL,
+          downloaded_at TEXT,
+          selected_at TEXT
+        );
 
-      CREATE TABLE items (
-        id TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        source_type TEXT NOT NULL,
-        original_path TEXT NOT NULL,
-        library_media_path TEXT NOT NULL,
-        extracted_audio_path TEXT,
-        note_path TEXT,
-        category_id TEXT,
-        duration_seconds INTEGER,
-        language TEXT,
-        status TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        imported_at TEXT NOT NULL,
-        FOREIGN KEY (category_id) REFERENCES categories(id)
-      );
+        CREATE TABLE items (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          source_type TEXT NOT NULL,
+          original_path TEXT NOT NULL,
+          library_media_path TEXT NOT NULL,
+          extracted_audio_path TEXT,
+          note_path TEXT,
+          category_id TEXT,
+          duration_seconds INTEGER,
+          language TEXT,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          imported_at TEXT NOT NULL,
+          FOREIGN KEY (category_id) REFERENCES categories(id)
+        );
 
-      CREATE TABLE transcripts (
-        id TEXT PRIMARY KEY,
-        item_id TEXT NOT NULL,
-        engine TEXT NOT NULL,
-        model TEXT NOT NULL,
-        language TEXT,
-        raw_text TEXT NOT NULL,
-        segments_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (item_id) REFERENCES items(id)
-      );
+        CREATE TABLE transcripts (
+          id TEXT PRIMARY KEY,
+          item_id TEXT NOT NULL,
+          engine TEXT NOT NULL,
+          model TEXT NOT NULL,
+          language TEXT,
+          raw_text TEXT NOT NULL,
+          segments_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (item_id) REFERENCES items(id)
+        );
 
-      CREATE TABLE notes (
-        id TEXT PRIMARY KEY,
-        item_id TEXT NOT NULL,
-        path TEXT NOT NULL,
-        title TEXT NOT NULL,
-        frontmatter_json TEXT NOT NULL,
-        content_hash TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (item_id) REFERENCES items(id)
-      );
+        CREATE TABLE notes (
+          id TEXT PRIMARY KEY,
+          item_id TEXT NOT NULL,
+          path TEXT NOT NULL,
+          title TEXT NOT NULL,
+          frontmatter_json TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (item_id) REFERENCES items(id)
+        );
 
-      CREATE TABLE item_tags (
-        item_id TEXT NOT NULL,
-        tag_id TEXT NOT NULL,
-        PRIMARY KEY (item_id, tag_id),
-        FOREIGN KEY (item_id) REFERENCES items(id),
-        FOREIGN KEY (tag_id) REFERENCES tags(id)
-      );
+        CREATE TABLE item_tags (
+          item_id TEXT NOT NULL,
+          tag_id TEXT NOT NULL,
+          PRIMARY KEY (item_id, tag_id),
+          FOREIGN KEY (item_id) REFERENCES items(id),
+          FOREIGN KEY (tag_id) REFERENCES tags(id)
+        );
 
-      CREATE TABLE jobs (
-        id TEXT PRIMARY KEY,
-        item_id TEXT,
-        type TEXT NOT NULL,
-        status TEXT NOT NULL,
-        payload_json TEXT NOT NULL,
-        progress REAL NOT NULL DEFAULT 0,
-        error_message TEXT,
-        created_at TEXT NOT NULL,
-        started_at TEXT,
-        completed_at TEXT,
-        FOREIGN KEY (item_id) REFERENCES items(id)
-      );
+        CREATE TABLE jobs (
+          id TEXT PRIMARY KEY,
+          item_id TEXT,
+          type TEXT NOT NULL,
+          status TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          progress REAL NOT NULL DEFAULT 0,
+          error_message TEXT,
+          created_at TEXT NOT NULL,
+          started_at TEXT,
+          completed_at TEXT,
+          FOREIGN KEY (item_id) REFERENCES items(id)
+        );
 
-      CREATE VIRTUAL TABLE search_entries_fts USING fts5(
-        item_id UNINDEXED,
-        note_path UNINDEXED,
-        source UNINDEXED,
-        start_seconds UNINDEXED,
-        title,
-        note,
-        transcript,
-        category,
-        tags
-      );
+        CREATE VIRTUAL TABLE search_entries_fts USING fts5(
+          item_id UNINDEXED,
+          note_path UNINDEXED,
+          source UNINDEXED,
+          start_seconds UNINDEXED,
+          title,
+          note,
+          transcript,
+          category,
+          tags
+        );
 
-      CREATE INDEX idx_items_status ON items(status);
-      CREATE INDEX idx_items_imported_at ON items(imported_at);
-      CREATE INDEX idx_jobs_status ON jobs(status);
-      CREATE INDEX idx_jobs_item_id ON jobs(item_id);
-      CREATE INDEX idx_notes_item_id ON notes(item_id);
-      CREATE INDEX idx_transcripts_item_id ON transcripts(item_id);
+        CREATE INDEX idx_items_status ON items(status);
+        CREATE INDEX idx_items_imported_at ON items(imported_at);
+        CREATE INDEX idx_jobs_status ON jobs(status);
+        CREATE INDEX idx_jobs_item_id ON jobs(item_id);
+        CREATE INDEX idx_notes_item_id ON notes(item_id);
+        CREATE INDEX idx_transcripts_item_id ON transcripts(item_id);
 
-      INSERT INTO models (id, name, size_label, local_path, status, downloaded_at, selected_at)
-      VALUES
-        ('tiny', 'Tiny', 'fastest, lowest accuracy', NULL, 'available', NULL, NULL),
-        ('base', 'Base', 'balanced default', NULL, 'available', NULL, NULL),
-        ('small', 'Small', 'slower, better accuracy', NULL, 'available', NULL, NULL);
-    `,
+        INSERT INTO models (id, name, size_label, local_path, status, downloaded_at, selected_at)
+        VALUES
+          ('tiny', 'Tiny', 'fastest, lowest accuracy', NULL, 'available', NULL, NULL),
+          ('base', 'Base', 'balanced default', NULL, 'available', NULL, NULL),
+          ('small', 'Small', 'slower, better accuracy', NULL, 'available', NULL, NULL);
+      `);
+    },
+  },
+  {
+    id: 2,
+    apply: (db, databasePath) => {
+      rewriteLegacyCategoryNotes(db, databasePath);
+      db.pragma("foreign_keys = OFF");
+      db.exec(`
+
+        CREATE TABLE items_new (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          source_type TEXT NOT NULL,
+          original_path TEXT NOT NULL,
+          library_media_path TEXT NOT NULL,
+          extracted_audio_path TEXT,
+          note_path TEXT,
+          duration_seconds INTEGER,
+          language TEXT,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          imported_at TEXT NOT NULL
+        );
+
+        INSERT INTO items_new (
+          id, title, source_type, original_path, library_media_path, extracted_audio_path,
+          note_path, duration_seconds, language, status, created_at, updated_at, imported_at
+        )
+        SELECT
+          id, title, source_type, original_path, library_media_path, extracted_audio_path,
+          note_path, duration_seconds, language, status, created_at, updated_at, imported_at
+        FROM items;
+
+        CREATE TABLE transcripts_new (
+          id TEXT PRIMARY KEY,
+          item_id TEXT NOT NULL,
+          engine TEXT NOT NULL,
+          model TEXT NOT NULL,
+          language TEXT,
+          raw_text TEXT NOT NULL,
+          segments_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (item_id) REFERENCES items(id)
+        );
+
+        INSERT INTO transcripts_new (
+          id, item_id, engine, model, language, raw_text, segments_json, created_at
+        )
+        SELECT id, item_id, engine, model, language, raw_text, segments_json, created_at
+        FROM transcripts;
+
+        CREATE TABLE notes_new (
+          id TEXT PRIMARY KEY,
+          item_id TEXT NOT NULL,
+          path TEXT NOT NULL,
+          title TEXT NOT NULL,
+          frontmatter_json TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (item_id) REFERENCES items(id)
+        );
+
+        INSERT INTO notes_new (
+          id, item_id, path, title, frontmatter_json, content_hash, created_at, updated_at
+        )
+        SELECT id, item_id, path, title, frontmatter_json, content_hash, created_at, updated_at
+        FROM notes;
+
+        CREATE TABLE item_tags_new (
+          item_id TEXT NOT NULL,
+          tag_id TEXT NOT NULL,
+          PRIMARY KEY (item_id, tag_id),
+          FOREIGN KEY (item_id) REFERENCES items(id),
+          FOREIGN KEY (tag_id) REFERENCES tags(id)
+        );
+
+        INSERT INTO item_tags_new (item_id, tag_id)
+        SELECT item_id, tag_id
+        FROM item_tags;
+
+        CREATE TABLE jobs_new (
+          id TEXT PRIMARY KEY,
+          item_id TEXT,
+          type TEXT NOT NULL,
+          status TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          progress REAL NOT NULL DEFAULT 0,
+          error_message TEXT,
+          created_at TEXT NOT NULL,
+          started_at TEXT,
+          completed_at TEXT,
+          FOREIGN KEY (item_id) REFERENCES items(id)
+        );
+
+        INSERT INTO jobs_new (
+          id, item_id, type, status, payload_json, progress, error_message, created_at, started_at, completed_at
+        )
+        SELECT id, item_id, type, status, payload_json, progress, error_message, created_at, started_at, completed_at
+        FROM jobs;
+
+        DROP TABLE search_entries_fts;
+        DROP TABLE jobs;
+        DROP TABLE item_tags;
+        DROP TABLE notes;
+        DROP TABLE transcripts;
+        DROP TABLE items;
+        DROP TABLE categories;
+
+        ALTER TABLE items_new RENAME TO items;
+        ALTER TABLE transcripts_new RENAME TO transcripts;
+        ALTER TABLE notes_new RENAME TO notes;
+        ALTER TABLE item_tags_new RENAME TO item_tags;
+        ALTER TABLE jobs_new RENAME TO jobs;
+
+        CREATE VIRTUAL TABLE search_entries_fts USING fts5(
+          item_id UNINDEXED,
+          note_path UNINDEXED,
+          source UNINDEXED,
+          start_seconds UNINDEXED,
+          title,
+          note,
+          transcript,
+          tags
+        );
+
+        CREATE INDEX idx_items_status ON items(status);
+        CREATE INDEX idx_items_imported_at ON items(imported_at);
+        CREATE INDEX idx_jobs_status ON jobs(status);
+        CREATE INDEX idx_jobs_item_id ON jobs(item_id);
+        CREATE INDEX idx_notes_item_id ON notes(item_id);
+        CREATE INDEX idx_transcripts_item_id ON transcripts(item_id);
+
+      `);
+      db.pragma("foreign_keys = ON");
+    },
   },
 ];
+
+function rewriteLegacyCategoryNotes(db: VoiceNoterDatabase, databasePath: string): void {
+  const libraryRoot = dirname(databasePath);
+  const noteRows = db
+    .prepare(
+      `
+        SELECT notes.item_id, notes.path, notes.frontmatter_json, categories.name AS category_name
+        FROM notes
+        INNER JOIN items ON items.id = notes.item_id
+        LEFT JOIN categories ON categories.id = items.category_id
+      `,
+    )
+    .all() as Array<{
+    item_id: string;
+    path: string;
+    frontmatter_json: string;
+    category_name: string | null;
+  }>;
+
+  for (const row of noteRows) {
+    const categoryName = row.category_name?.trim();
+    const notePath = row.path || join(libraryRoot, "notes");
+    if (!existsSync(notePath)) {
+      continue;
+    }
+    const original = readFileSync(notePath, "utf8");
+    const rewritten = stripCategoryLine(original, categoryName || undefined);
+    if (rewritten !== original) {
+      writeFileSync(notePath, rewritten, "utf8");
+    }
+
+    const frontmatter = JSON.parse(row.frontmatter_json) as Record<string, unknown>;
+    delete frontmatter.category;
+    db.prepare("UPDATE notes SET frontmatter_json = ?, content_hash = ?, updated_at = ? WHERE item_id = ?").run(
+      JSON.stringify(frontmatter),
+      hashContent(rewritten),
+      new Date().toISOString(),
+      row.item_id,
+    );
+  }
+}
+
+function stripCategoryLine(markdown: string, legacyCategory?: string): string {
+  const normalized = markdown.replace(/\r\n/g, "\n");
+  const comment = legacyCategory ? `<!-- Legacy category: ${legacyCategory} -->` : "";
+
+  if (!normalized.startsWith("---\n")) {
+    if (!comment || normalized.includes(comment)) {
+      return normalized;
+    }
+    return `${comment}\n\n${normalized}`.trimEnd() + "\n";
+  }
+
+  const closingIndex = normalized.indexOf("\n---\n", 4);
+  if (closingIndex === -1) {
+    return normalized;
+  }
+
+  const frontmatter = normalized
+    .slice(4, closingIndex)
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("category:"));
+  const body = normalized.slice(closingIndex + 5).replace(/^\n*/, "");
+  const commentBlock = comment && !body.includes(comment) ? `${comment}\n\n` : "";
+  return `---\n${frontmatter.join("\n")}\n---\n\n${commentBlock}${body}`.trimEnd() + "\n";
+}
+
+function hashContent(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}

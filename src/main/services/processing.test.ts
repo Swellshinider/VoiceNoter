@@ -57,7 +57,7 @@ describe("ProcessingService", () => {
         const processed = await service.processNextPendingJob();
 
       expect(processed?.type).toBe("transcribe");
-      const transcribeJob = (await queue.listJobs()).items.find((job) => job.type === "transcribe");
+      const transcribeJob = (await listJobsFlat(queue)).find((job) => job.type === "transcribe");
       expect(transcribeJob).toEqual(
         expect.objectContaining({
           status: "failed",
@@ -67,7 +67,7 @@ describe("ProcessingService", () => {
           }),
         }),
       );
-      expect((await queue.listJobs()).items.find((job) => job.type === "generate_markdown")).toEqual(
+      expect((await listJobsFlat(queue)).find((job) => job.type === "generate_markdown")).toEqual(
         expect.objectContaining({
           status: "failed",
           error: expect.objectContaining({
@@ -76,7 +76,7 @@ describe("ProcessingService", () => {
           }),
         }),
       );
-      expect((await queue.listJobs()).items.find((job) => job.type === "index_note")).toEqual(
+      expect((await listJobsFlat(queue)).find((job) => job.type === "index_note")).toEqual(
         expect.objectContaining({
           status: "failed",
           error: expect.objectContaining({
@@ -117,7 +117,7 @@ describe("ProcessingService", () => {
       db.prepare("UPDATE items SET status = 'failed' WHERE id = ?").run(itemId);
 
       const queue = new QueueService(db);
-      const indexJob = (await queue.listJobs()).items.find((job) => job.type === "index_note")!;
+      const indexJob = (await listJobsFlat(queue)).find((job) => job.type === "index_note")!;
       await queue.retryJob(indexJob.id);
       const processed = await new ProcessingService(libraryRoot, db, queue).processNextPendingJob();
 
@@ -128,3 +128,8 @@ describe("ProcessingService", () => {
     }
   });
 });
+
+async function listJobsFlat(queue: QueueService) {
+  const page = await queue.listJobs();
+  return page.items.flatMap((group) => group.jobs);
+}

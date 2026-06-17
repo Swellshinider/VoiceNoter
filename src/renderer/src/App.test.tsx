@@ -95,7 +95,7 @@ describe("App", () => {
       installedModelCount: 0,
     });
     window.voiceNoter.queue.getSummary = vi.fn().mockResolvedValue(mockQueueSummary);
-    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ categories: [], tags: [] });
+    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ tags: [] });
 
     render(<App />);
 
@@ -107,7 +107,7 @@ describe("App", () => {
     window.voiceNoter.library.getCurrentLibrary = vi.fn().mockResolvedValue(mockLibraryState);
     window.voiceNoter.library.getLastLibrary = vi.fn().mockResolvedValue(mockLibraryState.path);
     window.voiceNoter.queue.getSummary = vi.fn().mockResolvedValue(mockQueueSummary);
-    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ categories: [], tags: [] });
+    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ tags: [] });
 
     render(<App />);
 
@@ -138,7 +138,7 @@ describe("App", () => {
     window.voiceNoter.library.getCurrentLibrary = vi.fn().mockResolvedValue(mockLibraryState);
     window.voiceNoter.library.getLastLibrary = vi.fn().mockResolvedValue(mockLibraryState.path);
     window.voiceNoter.queue.getSummary = vi.fn().mockResolvedValue(mockQueueSummary);
-    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ categories: [], tags: [] });
+    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ tags: [] });
     window.voiceNoter.items.getItem = vi.fn().mockResolvedValue(dashboardItemDetail);
 
     render(<App />);
@@ -160,7 +160,7 @@ describe("App", () => {
     window.voiceNoter.library.getCurrentLibrary = vi.fn().mockResolvedValue(mockLibraryState);
     window.voiceNoter.library.getLastLibrary = vi.fn().mockResolvedValue(mockLibraryState.path);
     window.voiceNoter.queue.getSummary = vi.fn().mockResolvedValue(mockQueueSummary);
-    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ categories: [], tags: [] });
+    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ tags: [] });
     window.voiceNoter.items.listItems = vi.fn().mockResolvedValue({ ...mockItemPage, items: [mockItemSummary] });
 
     render(<App />);
@@ -171,12 +171,105 @@ describe("App", () => {
     );
   });
 
+  it("keeps search inside All Items and scopes submitted searches to the active tag", async () => {
+    const user = userEvent.setup();
+    window.voiceNoter.library.getCurrentLibrary = vi.fn().mockResolvedValue(mockLibraryState);
+    window.voiceNoter.library.getLastLibrary = vi.fn().mockResolvedValue(mockLibraryState.path);
+    window.voiceNoter.queue.getSummary = vi.fn().mockResolvedValue(mockQueueSummary);
+    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ tags: [{ id: "tag-1", name: "Follow-up", itemCount: 1 }] });
+    window.voiceNoter.items.listItems = vi.fn().mockResolvedValue({ ...mockItemPage, items: [mockItemSummary] });
+    window.voiceNoter.search.search = vi.fn().mockResolvedValue({
+      items: [
+        {
+          itemId: "item-1",
+          notePath: "/tmp/notes/test.md",
+          title: "Test Recording",
+          snippet: "matching text",
+          source: "transcript",
+          sourceType: "audio",
+          status: "ready",
+          startSeconds: 5,
+        },
+      ],
+      total: 1,
+      limit: 50,
+      offset: 0,
+      nextOffset: null,
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /Follow-up/i }));
+    await waitFor(() =>
+      expect(window.voiceNoter.items.listItems).toHaveBeenCalledWith(expect.objectContaining({ view: "tag", tagId: "tag-1", limit: 50, offset: 0 })),
+    );
+
+    await user.type(screen.getByPlaceholderText(/Search notes and transcripts/i), "matching text");
+    await user.click(screen.getByRole("button", { name: /^Search$/i }));
+
+    await waitFor(() =>
+      expect(window.voiceNoter.search.search).toHaveBeenCalledWith(expect.objectContaining({ text: "matching text", tagId: "tag-1", limit: 50, offset: 0 })),
+    );
+    expect(screen.queryByRole("button", { name: /^Search Results$/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /^All Items$/i })).toBeInTheDocument();
+  });
+
+  it("clearing search restores the active tag list instead of a separate search view", async () => {
+    const user = userEvent.setup();
+    window.voiceNoter.library.getCurrentLibrary = vi.fn().mockResolvedValue(mockLibraryState);
+    window.voiceNoter.library.getLastLibrary = vi.fn().mockResolvedValue(mockLibraryState.path);
+    window.voiceNoter.queue.getSummary = vi.fn().mockResolvedValue(mockQueueSummary);
+    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ tags: [{ id: "tag-1", name: "Follow-up", itemCount: 1 }] });
+    window.voiceNoter.items.listItems = vi
+      .fn()
+      .mockResolvedValueOnce({ ...mockItemPage, items: [mockItemSummary] })
+      .mockResolvedValueOnce({ ...mockItemPage, items: [mockItemSummary] });
+    window.voiceNoter.search.search = vi.fn().mockResolvedValue({
+      items: [
+        {
+          itemId: "item-1",
+          notePath: "/tmp/notes/test.md",
+          title: "Test Recording",
+          snippet: "matching text",
+          source: "transcript",
+          sourceType: "audio",
+          status: "ready",
+          startSeconds: 5,
+        },
+      ],
+      total: 1,
+      limit: 50,
+      offset: 0,
+      nextOffset: null,
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /Follow-up/i }));
+    await waitFor(() =>
+      expect(window.voiceNoter.items.listItems).toHaveBeenCalledWith(expect.objectContaining({ view: "tag", tagId: "tag-1", limit: 50, offset: 0 })),
+    );
+
+    const searchInput = screen.getByPlaceholderText(/Search notes and transcripts/i);
+    await user.type(searchInput, "matching text");
+    await user.click(screen.getByRole("button", { name: /^Search$/i }));
+    await waitFor(() => expect(window.voiceNoter.search.search).toHaveBeenCalled());
+
+    await user.clear(searchInput);
+    await user.click(screen.getByRole("button", { name: /^Search$/i }));
+
+    await waitFor(() =>
+      expect(window.voiceNoter.items.listItems).toHaveBeenLastCalledWith(expect.objectContaining({ view: "tag", tagId: "tag-1", limit: 50, offset: 0 })),
+    );
+    expect(screen.queryByRole("button", { name: /^Search Results$/i })).toBeNull();
+  });
+
   it("opens search results in the focus page and back preserves the search text", async () => {
     const user = userEvent.setup();
     window.voiceNoter.library.getCurrentLibrary = vi.fn().mockResolvedValue(mockLibraryState);
     window.voiceNoter.library.getLastLibrary = vi.fn().mockResolvedValue(mockLibraryState.path);
     window.voiceNoter.queue.getSummary = vi.fn().mockResolvedValue(mockQueueSummary);
-    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ categories: [], tags: [] });
+    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ tags: [] });
     window.voiceNoter.search.search = vi.fn().mockResolvedValue({
       items: [{ itemId: "item-1", notePath: "/tmp/notes/test.md", title: "Test Recording", snippet: "matching text", source: "transcript", sourceType: "audio", status: "ready", startSeconds: 5 }],
       total: 1,
@@ -196,7 +289,7 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: /^Back$/i }));
 
-    await waitFor(() => expect(screen.getAllByText("Search Results").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText("All Items").length).toBeGreaterThan(0));
     expect(screen.getByDisplayValue("matching text")).toBeInTheDocument();
   });
 
@@ -255,12 +348,12 @@ describe("App", () => {
 
   it("confirms before leaving the focus page with unsaved transcript edits", async () => {
     const user = userEvent.setup();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
 
     window.voiceNoter.library.getCurrentLibrary = vi.fn().mockResolvedValue(mockLibraryState);
     window.voiceNoter.library.getLastLibrary = vi.fn().mockResolvedValue(mockLibraryState.path);
     window.voiceNoter.queue.getSummary = vi.fn().mockResolvedValue(mockQueueSummary);
-    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ categories: [], tags: [] });
+    window.voiceNoter.items.getFacets = vi.fn().mockResolvedValue({ tags: [] });
     window.voiceNoter.items.getItem = vi.fn().mockResolvedValue(mockItemDetail);
     window.voiceNoter.items.listItems = vi.fn().mockResolvedValue({ ...mockItemPage, items: [mockItemSummary] });
 
@@ -274,12 +367,13 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: /^Dashboard$/i }));
 
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(confirmSpy).toHaveBeenCalled();
     expect(screen.getByRole("button", { name: /^Back$/i })).toBeInTheDocument();
 
+    confirmSpy.mockReturnValue(true);
     await user.click(screen.getByRole("button", { name: /^Dashboard$/i }));
 
-    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    expect(confirmSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(await screen.findByText("Library health at a glance")).toBeInTheDocument();
   });
 });

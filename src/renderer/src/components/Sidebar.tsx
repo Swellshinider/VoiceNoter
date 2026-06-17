@@ -1,9 +1,9 @@
-import { Boxes, Folder, LayoutDashboard, List, Search, Settings, Tags, Workflow } from "lucide-react";
+import { Boxes, LayoutDashboard, List, Settings, Tags, Workflow } from "lucide-react";
 import type { ItemFacets } from "../../../shared/types";
 
-export type ViewKey = "dashboard" | "all" | "search" | "queue" | "models" | "settings";
+export type ViewKey = "dashboard" | "all" | "queue" | "models" | "settings";
 
-export type FilterState = { type: "category"; id: string; name: string } | { type: "tag"; id: string; name: string } | null;
+export type FilterState = { type: "tag"; id: string; name: string } | null;
 
 export function Sidebar({
   view,
@@ -18,7 +18,6 @@ export function Sidebar({
   onViewChange: (view: ViewKey) => void;
   onFilterSelect: (filter: FilterState) => void;
 }) {
-  const categories = facets?.categories ?? [];
   const tags = facets?.tags ?? [];
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-card">
@@ -29,22 +28,14 @@ export function Sidebar({
       <nav className="flex flex-1 flex-col gap-1 overflow-auto p-3">
         <NavButton icon={<LayoutDashboard />} label="Dashboard" selected={view === "dashboard" && !activeFilter} onClick={() => { onFilterSelect(null); onViewChange("dashboard"); }} />
         <NavButton icon={<List />} label="All Items" selected={view === "all" && !activeFilter} onClick={() => { onFilterSelect(null); onViewChange("all"); }} />
-        <NavButton icon={<Search />} label="Search Results" selected={view === "search"} onClick={() => onViewChange("search")} />
-        <NavButton icon={<Workflow />} label="Processing Queue" selected={view === "queue"} onClick={() => onViewChange("queue")} />
+        <NavButton icon={<Workflow />} label="Processing Status" selected={view === "queue"} onClick={() => onViewChange("queue")} />
         <NavButton icon={<Boxes />} label="Model Manager" selected={view === "models"} onClick={() => onViewChange("models")} />
         <NavButton icon={<Settings />} label="Settings" selected={view === "settings"} onClick={() => onViewChange("settings")} />
-        <SidebarGroup
-          icon={<Folder />}
-          label="Categories"
-          items={categories}
-          selectedId={activeFilter?.type === "category" ? activeFilter.id : null}
-          onItemClick={(id, name) => onFilterSelect({ type: "category", id, name })}
-        />
         <SidebarGroup
           icon={<Tags />}
           label="Tags"
           items={tags}
-          selectedId={activeFilter?.type === "tag" ? activeFilter.id : null}
+          selectedId={activeFilter?.id ?? null}
           onItemClick={(id, name) => onFilterSelect({ type: "tag", id, name })}
         />
       </nav>

@@ -57,7 +57,7 @@ if (!args.includes("-pp")) {
         new Date().toISOString(),
       );
       const queue = new QueueService(db);
-      const transcribeJob = (await queue.listJobs()).items.find((job) => job.type === "transcribe")!;
+      const transcribeJob = (await listJobsFlat(queue)).find((job) => job.type === "transcribe")!;
       queue.startJob(transcribeJob.id);
 
       const result = await Promise.race([
@@ -75,7 +75,7 @@ if (!args.includes("-pp")) {
       );
       expect(JSON.parse(await readFile(argsPath, "utf8"))).toEqual(expect.arrayContaining(["-l", "auto"]));
       expect(result.segments).toEqual([{ startSeconds: 88, endSeconds: 90.5, text: "Hello world." }]);
-      expect((await queue.listJobs()).items.find((job) => job.id === transcribeJob.id)).toEqual(expect.objectContaining({ progress: 1 }));
+      expect((await listJobsFlat(queue)).find((job) => job.id === transcribeJob.id)).toEqual(expect.objectContaining({ progress: 1 }));
     } finally {
       if (previousWhisperCli === undefined) {
         delete process.env.VOICENOTER_WHISPER_CLI;
@@ -123,7 +123,7 @@ fs.writeFileSync(\`\${outputBase}.json\`, JSON.stringify({
         new Date().toISOString(),
       );
       const queue = new QueueService(db);
-      const transcribeJob = (await queue.listJobs()).items.find((job) => job.type === "transcribe")!;
+      const transcribeJob = (await listJobsFlat(queue)).find((job) => job.type === "transcribe")!;
       queue.startJob(transcribeJob.id);
 
       const result = await new TranscriptionService(libraryRoot, db, queue).transcribe(transcribeJob.id, itemId, mediaPath, "ja");
@@ -140,3 +140,8 @@ fs.writeFileSync(\`\${outputBase}.json\`, JSON.stringify({
     }
   });
 });
+
+async function listJobsFlat(queue: QueueService) {
+  const page = await queue.listJobs();
+  return page.items.flatMap((group) => group.jobs);
+}

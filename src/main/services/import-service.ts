@@ -57,9 +57,9 @@ export class ImportService {
             `
               INSERT INTO items (
                 id, title, source_type, original_path, library_media_path, extracted_audio_path,
-                note_path, category_id, duration_seconds, language, status, created_at, updated_at, imported_at
+                note_path, duration_seconds, language, status, created_at, updated_at, imported_at
               )
-              VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, 'importing', ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, 'importing', ?, ?, ?)
             `,
           )
           .run(itemId, title, sourceType, path, libraryMediaPath, now, now, now);
